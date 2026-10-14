@@ -169,6 +169,44 @@ def proveEqZeroUsing (tac : TacticM Unit) (e : Expr) : MetaM Expr := do
   let _h : Q(Zero $α) ← synthInstanceQ q(Zero $α)
   synthesizeUsing' q($e = 0) tac
 
+/-- Log `f` under `linarith.detail`, with the provided name. -/
+def detailTrace {α} (s : String) (f : MetaM α) : MetaM α :=
+  withTraceNode `linarith.detail (fun _ => return m!"{s}") f
+
+/-! #### Coefficient extraction -/
+
+/--
+`getLinearCombinations transparency l` takes a list `l` of proofs of `tᵢ Rᵢ 0`,
+adds a proof of `-1 < 0` and negated equality proofs, and computes the linear form of each
+resulting proof, identifying atoms up to `transparency`.
+
+It returns `(comps, maxVar, inputsTagged)`, where `comps` are the linear forms,
+`maxVar` is the largest variable index occurring in them, and `inputsTagged` lists the
+corresponding proofs, in the same order as `comps`. Each proof is tagged with the index in `l`
+of the hypothesis it came from, or with `none` for the proof of `-1 < 0`.
+
+The proof of `-1 < 0` comes first, followed by the (augmented) list `l` in reverse order;
+in particular, the last entry corresponds to the head of `l`. Fails if `l` is empty.
+-/
+def getLinearCombinations (transparency : TransparencyMode) :
+    List Expr → MetaM (List Comp × ℕ × List (Expr × Option Nat))
+  | [] => throwError "no args to linarith"
+  | l@(h::_) => do
+      -- for the elimination to work properly, we must add a proof of `-1 < 0` to the list,
+      -- along with negated equality proofs.
+      let lidx := l.zipIdx
+      let l' ← detailTrace "addNegEqProofs" <| addNegEqProofsIdx lidx
+      let inputsTagged : List (Expr × Option Nat) ←
+        detailTrace "mkNegOneLtZeroProof" <|
+          return ((← mkNegOneLtZeroProof (← typeOfIneqProof h)), none) ::
+            (l'.reverse.map fun ⟨e, i⟩ => (e, some i))
+      let inputs := inputsTagged.map Prod.fst
+      trace[linarith.detail] "inputs:{indentD <| toMessageData (← inputs.mapM inferType)}"
+      let (comps, max_var) ← detailTrace "linearFormsAndMaxVar" <|
+        linearFormsAndMaxVar transparency inputs
+      trace[linarith.detail] "comps:{indentD <| toMessageData comps}"
+      return (comps, max_var, inputsTagged)
+
 /-! #### The main method -/
 
 /--
@@ -197,21 +235,9 @@ tactic, which is typically `ring`. We prove (2) by folding over the set of hypot
 def proveFalseByLinarith (transparency : TransparencyMode) (oracle : CertificateOracle)
     (discharger : TacticM Unit) : MVarId → List Expr → MetaM (Expr × List Nat)
   | _, [] => throwError "no args to linarith"
-  | g, l@(h::_) => do
+  | g, l@(_::_) => do
       Lean.Core.checkSystem decl_name%.toString
-      -- for the elimination to work properly, we must add a proof of `-1 < 0` to the list,
-      -- along with negated equality proofs.
-      let lidx := l.zipIdx
-      let l' ← detailTrace "addNegEqProofs" <| addNegEqProofsIdx lidx
-      let inputsTagged : List (Expr × Option Nat) ←
-        detailTrace "mkNegOneLtZeroProof" <|
-          return ((← mkNegOneLtZeroProof (← typeOfIneqProof h)), none) ::
-            (l'.reverse.map fun ⟨e, i⟩ => (e, some i))
-      let inputs := inputsTagged.map Prod.fst
-      trace[linarith.detail] "inputs:{indentD <| toMessageData (← inputs.mapM inferType)}"
-      let (comps, max_var) ← detailTrace "linearFormsAndMaxVar" <|
-        linearFormsAndMaxVar transparency inputs
-      trace[linarith.detail] "comps:{indentD <| toMessageData comps}"
+      let (comps, max_var, inputsTagged) ← getLinearCombinations transparency l
       -- perform the elimination and fail if no contradiction is found.
       let certificate : Std.HashMap Nat Nat ←
         withTraceNode `linarith (fun _ => return m!" Invoking oracle") do
@@ -253,9 +279,5 @@ def proveFalseByLinarith (transparency : TransparencyMode) (oracle : Certificate
         let pf' ← mkAppM ``Eq.mp #[nep, sm_lt_zero]
         mkAppM ``Linarith.lt_irrefl #[pf']
       return (pf, idxs)
-where
-  /-- Log `f` under `linarith.detail`, with the provided name. -/
-  detailTrace {α} (s : String) (f : MetaM α) : MetaM α :=
-    withTraceNode `linarith.detail (fun _ => return m!"{s}") f
 
 end Mathlib.Tactic.Linarith
