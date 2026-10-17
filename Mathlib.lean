@@ -7683,6 +7683,7 @@ public import Mathlib.Tactic.Linarith.Oracle.FourierMotzkin
 public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm
 public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Datatypes
 public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Gauss
+public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Optimize
 public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.PositiveVector
 public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.SimplexAlgorithm
 public import Mathlib.Tactic.Linarith.Parsing

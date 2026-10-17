@@ -6,6 +6,7 @@ Authors: Shuli Chen, Robert Y. Lewis, Heather Macbeth, Siqing Zhang, Runtian Zho
 module
 
 public import Mathlib.Tactic.Linarith
+public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Optimize
 
 /-!
 # Linear Optimization Tactics
@@ -131,6 +132,15 @@ end MatrixPreprocessing
 
 section BoundComputation
 
+/-- Whether `linarith` can prove `False` from the hypotheses in the context of `g`. -/
+def hypothesesInconsistent (g : MVarId) : MetaM Bool := g.withContext do
+  let goal ← mkFreshExprMVar (mkConst ``False)
+  try
+    Linarith.linarith false [] {} goal.mvarId!
+    return true
+  catch _ =>
+    return false
+
 /-- Compute the optimal bound (upper bound for maximization, lower bound for minimization).
 
 This function implements the core optimization logic, using the duality principle:
@@ -147,7 +157,7 @@ and minimize with a single simplex implementation.
 Returns the optimal bound as a rational number, or an error if the problem is
 unbounded or infeasible. -/
 def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
-    MetaM (Except SimplexAlgorithmException Rat) := g.withContext do
+    MetaM (Except LinearOptimException Rat) := g.withContext do
   let ⟨u, ty, e_exp⟩ ← inferTypeQ' e_exp
   let _i ← synthInstanceQ q(PartialOrder $ty)
   let _i ← synthInstanceQ q(Ring $ty) -- Use Ring to ensure negation is available
@@ -176,6 +186,13 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
       -- The target was `-e`. We found `max(-e)`.
       -- So we return `-max(-e)` to get `min(e)`.
       return Except.ok (-max_of_target)
+  -- No bound follows from the hypotheses: either the expression is unbounded or the hypotheses are
+  -- inconsistent. Tell the two apart with `linarith`.
+  | .error .unbounded =>
+    if ← hypothesesInconsistent g then
+      return Except.error .inconsistent
+    else
+      return Except.error .unbounded
   | .error e => return Except.error e
 
 
@@ -247,10 +264,10 @@ elab "maximize" e_stx:term h_stx:(withArg)? : tactic => do
   let e_exp : Expr ← Elab.Tactic.elabTerm e_stx none
   -- Compute the bound, handling exceptions explicitly
   match ← computeOptimalBound e_exp true (← getMainGoal) with
-  | .error SimplexAlgorithmException.infeasible =>
+  | .error .inconsistent =>
     throwError "maximize: an upper bound cannot be produced for {e_stx}.
     The constraints may be inconsistent."
-  | .error SimplexAlgorithmException.unbounded =>
+  | .error .unbounded =>
     throwError "maximize: an upper bound cannot be produced for {e_stx}.
     The expression may be unbounded."
   | .ok bound =>
@@ -264,6 +281,12 @@ elab "maximize" e_stx:term h_stx:(withArg)? : tactic => do
         pure true
       catch _ =>
         pure false
+
+    -- Inconsistent hypotheses prove every bound, and in particular a strict one.
+    if canProveStrict then
+      if ← hypothesesInconsistent (← getMainGoal) then
+        throwError "maximize: an upper bound cannot be produced for {e_stx}.
+    The constraints may be inconsistent."
 
     -- Create the appropriate tactic syntax
     let tacticStx : TSyntax `tactic ← if canProveStrict then
@@ -345,10 +368,10 @@ elab "minimize" e_stx:term h_stx:(withArg)? : tactic => do
   let e_exp : Expr ← Elab.Tactic.elabTerm e_stx none
   -- Compute the bound, handling exceptions explicitly
   match ← computeOptimalBound e_exp false (← getMainGoal) with
-  | .error SimplexAlgorithmException.infeasible =>
+  | .error .inconsistent =>
     throwError "minimize: a lower bound cannot be produced for {e_stx}.
     The constraints may be inconsistent."
-  | .error SimplexAlgorithmException.unbounded =>
+  | .error .unbounded =>
     throwError "minimize: a lower bound cannot be produced for {e_stx}.
     The expression may be unbounded."
   | .ok bound =>
@@ -362,6 +385,12 @@ elab "minimize" e_stx:term h_stx:(withArg)? : tactic => do
         pure true
       catch _ =>
         pure false
+
+    -- Inconsistent hypotheses prove every bound, and in particular a strict one.
+    if canProveStrict then
+      if ← hypothesesInconsistent (← getMainGoal) then
+        throwError "minimize: a lower bound cannot be produced for {e_stx}.
+    The constraints may be inconsistent."
 
     -- Create the appropriate tactic syntax
     let tacticStx : TSyntax `tactic ← if canProveStrict then

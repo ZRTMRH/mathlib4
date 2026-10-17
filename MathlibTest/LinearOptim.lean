@@ -491,7 +491,7 @@ example (x : ℚ) (h2 : x < -5) :  True := by
   maximize x with H
   trivial
 
--- Test that should fail: inconsistent constraints minimize
+-- Test that should fail: inconsistent constraints maximize
 /-- error: maximize: an upper bound cannot be produced for x.
     The constraints may be inconsistent. -/
 #guard_msgs in
@@ -508,9 +508,8 @@ example (x : ℚ) (h2 : x < 0) (h1 : x > 5):  True := by
   trivial
 
  -- Test that should fail: inconsistent constraints and unbounded expressions maximize
- -- Because there is hypotehsis h3 that involves y, the algorithm won't detect unboundedness from
- -- the lack of contrainst on y first. Thus it detects inconsistent constraints first thus the error
- -- message should say that.
+ -- No bound on `y + x` follows from the hypotheses, and they are inconsistent, so the error message
+ -- should say that.
 /-- error: maximize: an upper bound cannot be produced for y + x.
     The constraints may be inconsistent. -/
 #guard_msgs in
@@ -543,8 +542,7 @@ example (x y z : ℚ) (h1 : x > 5) (h3 : y > 10):  True := by
   trivial
 
  -- Test that should fail: inconsistent constraints and unbounded expressions minimize
- -- In this case, the algorithm detects inconsistent constraints first thus the error message should
- -- say that.
+ -- The hypotheses are inconsistent, so the error message should say that.
 /-- error: minimize: a lower bound cannot be produced for y + x.
     The constraints may be inconsistent. -/
 #guard_msgs in
@@ -560,9 +558,7 @@ example (x y : ℚ) (h2 : x < 0) (h1 : x > 5) (h3 : y < 10):  True := by
   minimize x + y with H
   trivial
 
- -- Test that should fail: inconsistent constraints and unbounded expressions
- -- In this case, because there is hypothesis involving y, the algorithm detects unbounded
- -- expressions first.
+ -- Test that should fail: unbounded expression
 /-- error: maximize: an upper bound cannot be produced for y.
     The expression may be unbounded. -/
 #guard_msgs in
@@ -572,7 +568,7 @@ example (x y : ℚ) (h2 : x > 0) (h1 : y >= 7):  True := by
 
  -- Test that should fail: inconsistent constraints and unbounded expressions
 /-- error: maximize: an upper bound cannot be produced for y.
-    The expression may be unbounded. -/
+    The constraints may be inconsistent. -/
 #guard_msgs in
 example (x y : ℚ) (h2 : x < 0) (h1 : x > 7):  True := by
   maximize y with H
@@ -580,7 +576,7 @@ example (x y : ℚ) (h2 : x < 0) (h1 : x > 7):  True := by
 
  -- Test that should fail: inconsistent constraints and unbounded expressions
 /-- error: maximize: an upper bound cannot be produced for -y.
-    The expression may be unbounded. -/
+    The constraints may be inconsistent. -/
 #guard_msgs in
 example (x y : ℚ) (h2 : x < 0) (h1 : x > 7):  True := by
   maximize -y with H
@@ -588,13 +584,13 @@ example (x y : ℚ) (h2 : x < 0) (h1 : x > 7):  True := by
 
  -- Test that should fail: inconsistent constraints and unbounded expressions
 /-- error: maximize: an upper bound cannot be produced for x.
-    The expression may be unbounded. -/
+    The constraints may be inconsistent. -/
 #guard_msgs in
 example (x y : ℚ) (h2 : y < 0) (h1 : y > 7):  True := by
   maximize x with H
   trivial
 
- -- Test that should fail: inconsistent constraints
+ -- Test that should fail: unbounded expression
 /-- error: maximize: an upper bound cannot be produced for y.
     The expression may be unbounded. -/
 #guard_msgs in
@@ -602,7 +598,7 @@ example (x y : ℚ) (h2 : x < 0):  True := by
   maximize y with H
   trivial
 
- -- Test that should fail: inconsistent constraints
+ -- Test that should fail: unbounded expression
 /-- error: maximize: an upper bound cannot be produced for x + y.
     The expression may be unbounded. -/
 #guard_msgs in
@@ -610,12 +606,86 @@ example (x y z : ℚ) (h2 : y > 5) :  True := by
   maximize x + y
   trivial
 
- -- Test that should fail: inconsistent constraints
+ -- Test that should fail: inconsistent constraints, unbounded expression
 /-- error: maximize: an upper bound cannot be produced for x + y.
-    The expression may be unbounded. -/
+    The constraints may be inconsistent. -/
 #guard_msgs in
 example (x y : ℚ) (h1 : x > 0) (h2 : y <= 5) (h3: y > 9):  True := by
   maximize x + y
+  trivial
+
+-- TESTS FOR HYPOTHESIS ORDER
+
+-- The result must not depend on the order of the hypotheses: the simplex algorithm needs a
+-- feasible starting point, which Gaussian elimination alone provides only for some orders.
+
+/--
+info: Try this:
+  [apply] have : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h0 : -2 * x + 3 * y ≤ 7) (h2 : x + y ≤ 5) (h3 : x ≤ 10) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h0 : -2 * x + 3 * y ≤ 7) (h3 : x ≤ 10) (h2 : x + y ≤ 5) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h2 : x + y ≤ 5) (h0 : -2 * x + 3 * y ≤ 7) (h3 : x ≤ 10) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h2 : x + y ≤ 5) (h3 : x ≤ 10) (h0 : -2 * x + 3 * y ≤ 7) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h3 : x ≤ 10) (h0 : -2 * x + 3 * y ≤ 7) (h2 : x + y ≤ 5) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h3 : x ≤ 10) (h2 : x + y ≤ 5) (h0 : -2 * x + 3 * y ≤ 7) : True := by
+  maximize x
+  trivial
+
+-- Hypotheses inconsistent only because of a strict inequality: `x < -2` and `x ≥ -2`.
+/-- error: minimize: a lower bound cannot be produced for -2 * x.
+    The constraints may be inconsistent. -/
+#guard_msgs in
+example (x : ℚ) (h1 : -x > 2) (h2 : x ≥ -2) : True := by
+  minimize -2 * x
+  trivial
+
+/-- error: maximize: an upper bound cannot be produced for x.
+    The constraints may be inconsistent. -/
+#guard_msgs in
+example (x : ℚ) (h1 : x < 0) (h2 : x > 0) : True := by
+  maximize x
   trivial
 
 -- TESTS FOR OPTIONAL WITH CLAUSE
