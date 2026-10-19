@@ -13,6 +13,7 @@ public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Optimize
 
 This file implements `maximize` and `minimize` tactics that find upper and lower
 bounds for linear expressions given linear constraints using the simplex algorithm.
+The bounds are optimal over linearly ordered fields, the only types the tactics accept.
 
 ## Main declarations
 
@@ -159,8 +160,13 @@ unbounded or infeasible. -/
 def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
     MetaM (Except LinearOptimException Rat) := g.withContext do
   let ⟨u, ty, e_exp⟩ ← inferTypeQ' e_exp
-  let _i ← synthInstanceQ q(PartialOrder $ty)
-  let _i ← synthInstanceQ q(Ring $ty) -- Use Ring to ensure negation is available
+  -- The bound is the optimum of a linear program over `ℚ`, which is the optimum over `ty` only
+  -- when `ty` is a linearly ordered field: over `ℤ`, for instance, it need not be an integer.
+  let notField := m!"{if isMaximize then "maximize" else "minimize"} only works over linearly \
+    ordered fields, such as ℚ and ℝ, but {e_exp} has type {ty}."
+  let _i ← try synthInstanceQ q(Field $ty) catch _ => throwError notField
+  let _i ← try synthInstanceQ q(LinearOrder $ty) catch _ => throwError notField
+  let _i ← try synthInstanceQ q(IsStrictOrderedRing $ty) catch _ => throwError notField
   assumeInstancesCommute
   -- To find max(e), we run the pipeline on `e`.
   -- To find min(e), we run the pipeline on `-e` and use the identity min(e) = -max(-e).
@@ -219,6 +225,8 @@ The second form creates a hypothesis with the given identifier.
 `maximize` uses the simplex algorithm to find an optimal upper bound for the given
 linear expression based on the linear constraints in the local context. It generates
 a `have` statement with the computed bound that is proved using `linarith`.
+
+The expression must take values in a linearly ordered field, such as `ℚ` or `ℝ`.
 
 ## Examples
 
@@ -323,6 +331,8 @@ The second form creates a hypothesis with the given identifier.
 `minimize` uses the simplex algorithm to find an optimal lower bound for the given
 linear expression based on the linear constraints in the local context. It generates
 a `have` statement with the computed bound that is proved using `linarith`.
+
+The expression must take values in a linearly ordered field, such as `ℚ` or `ℝ`.
 
 ## Examples
 

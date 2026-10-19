@@ -116,6 +116,7 @@ namespace Mathlib.Tactic
 -- FIXME: we cannot write this line when `Lean.Parser.Tactic` is open,
 -- or it will get an extra `group`
 syntax withArgs := " with" (ppSpace colGt ident)+
+/-- A single name introduced by ` with h`, as in `maximize e with h`. -/
 syntax withArg := " with" ident
 syntax usingArg := " using " term
 

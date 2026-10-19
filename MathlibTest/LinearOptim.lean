@@ -173,13 +173,13 @@ example (x y : ℚ) (h1 : -2 * x - y > -10) (h2 : -x - 11 * y > -9) :
   minimize -x - 7 * y with H
   exact ⟨-157 / 21, by linarith, by linarith [H]⟩
 
--- Tests with different types similar to linarith
+-- Tests with different types similar to linarith (any linearly ordered field)
 /--
 info: Try this:
   [apply] have H : x + y < 5 := by linarith
 -/
 #guard_msgs in
-example {α} [CommRing α] [LinearOrder α] [IsStrictOrderedRing α]
+example {α} [Field α] [LinearOrder α] [IsStrictOrderedRing α]
     (x y : α) (h1 : x + y < 5) (h2 : x < 3) : True := by
   maximize x + y with H
   trivial
@@ -612,6 +612,32 @@ example (x y z : ℚ) (h2 : y > 5) :  True := by
 #guard_msgs in
 example (x y : ℚ) (h1 : x > 0) (h2 : y <= 5) (h3: y > 9):  True := by
   maximize x + y
+  trivial
+
+-- TESTS FOR THE TYPE OF THE EXPRESSION
+
+-- Over `ℤ` the optimum of the rational problem need not be an integer, so `ℤ` is rejected.
+/-- error: maximize only works over linearly ordered fields, such as ℚ and ℝ, but x has type ℤ. -/
+#guard_msgs in
+example (x : ℤ) (h : 2 * x ≤ 7) : True := by
+  maximize x
+  trivial
+
+/-- error: minimize only works over linearly ordered fields, such as ℚ and ℝ, but x has type ℕ. -/
+#guard_msgs in
+example (x : ℕ) (h : x ≤ 3) : True := by
+  minimize x
+  trivial
+
+-- Any linearly ordered field works.
+/--
+info: Try this:
+  [apply] have : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example {K : Type*} [Field K] [LinearOrder K] [IsStrictOrderedRing K] (x y : K)
+    (h0 : -2 * x + 3 * y ≤ 7) (h2 : x + y ≤ 5) (h3 : x ≤ 10) : True := by
+  maximize x
   trivial
 
 -- TESTS FOR HYPOTHESIS ORDER
