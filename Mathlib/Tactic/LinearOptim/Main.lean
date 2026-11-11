@@ -5,6 +5,7 @@ Authors: Shuli Chen, Robert Y. Lewis, Heather Macbeth, Siqing Zhang, Runtian Zho
 -/
 module
 
+public import Mathlib.Lean.Quote
 public import Mathlib.Tactic.Linarith
 public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Optimize
 
@@ -44,23 +45,6 @@ open Mathlib.Tactic (getWithArg)
 open Qq
 
 namespace Mathlib.Tactic.LinearOptim
-
-/-! ### Quoting numerals
-
-TODO: these instances were previously in `Mathlib/Tactic/Polyrith.lean` (#942, fixed in #24470)
-and were removed together with `polyrith` (#29547). They should move to a shared location;
-this is being discussed on Zulip. They produce numerals without a type ascription, so that the
-result elaborates at the expected type (e.g. `ℝ`).
--/
-
-instance : Quote ℤ where quote
-  | .ofNat n => quote n
-  | .negSucc n => Unhygienic.run `(-$(quote (n + 1)))
-
-instance : Quote ℚ where
-  quote q :=
-    if q.den = 1 then quote q.num
-    else Unhygienic.run `($(quote q.num) / $(quote q.den))
 
 section Preprocessing
 
