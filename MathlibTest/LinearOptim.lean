@@ -1099,3 +1099,36 @@ example (x : ℚ) (h : x ≤ 5) : True := by
   trivial
 
 end StrictVsNonStrict
+
+/-! ### Variables introduced inside the proof -/
+
+/--
+info: Try this:
+  [apply] have : x ≤ 2 := by linarith
+-/
+#guard_msgs in
+example : ∀ x : ℚ, x ≤ 2 → True := by
+  intro x hx
+  maximize x
+  trivial
+
+-- The inner `x` shadows the outer one, and the bound is about the inner `x`.
+/--
+info: Try this:
+  [apply] have : x ≤ 5 := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (h : x ≤ 1) : ∀ x : ℚ, x ≤ 5 → True := by
+  intro x hx
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : 1 ≤ x := by linarith
+-/
+#guard_msgs in
+example (h : ∃ x : ℚ, 1 ≤ x ∧ x ≤ 3) : True := by
+  obtain ⟨x, hx1, hx2⟩ := h
+  minimize x
+  trivial

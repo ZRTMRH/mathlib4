@@ -219,14 +219,14 @@ The expression must take values in a linearly ordered field, such as `ℚ` or `�
 ```lean
 example (x y : ℚ) (h1 : 3 * x + y < 4) (h2 : x < 2) : True := by
   maximize 4 * x + y with H
-  -- Creates: have H : 4 * x + y ≤ 6 := by linarith
+  -- Creates: have H : 4 * x + y < 6 := by linarith
   trivial
 ```
 
 ```lean
 example (x : ℚ) (h : x < 10) : True := by
   maximize x
-  -- Creates: have : x ≤ 10 := by linarith
+  -- Creates: have : x < 10 := by linarith
   trivial
 ```
 
@@ -252,7 +252,7 @@ example (x : ℚ) (h1 : x > 0) (h2 : x < -5) : True := by
 
 * `minimize` - finds a lower bound for a linear expression
 -/
-elab "maximize" e_stx:term h_stx:(withArg)? : tactic => do
+elab "maximize" e_stx:term h_stx:(withArg)? : tactic => withMainContext do
   let e_exp : Expr ← Elab.Tactic.elabTerm e_stx none
   -- Compute the bound, handling exceptions explicitly
   match ← computeOptimalBound e_exp true (← getMainGoal) with
@@ -325,14 +325,14 @@ The expression must take values in a linearly ordered field, such as `ℚ` or `�
 ```lean
 example (x y : ℚ) (h1 : 3 * x + y > -4) (h2 : x > -2) : True := by
   minimize 4 * x + y with H
-  -- Creates: have H : -6 ≤ 4 * x + y := by linarith
+  -- Creates: have H : -6 < 4 * x + y := by linarith
   trivial
 ```
 
 ```lean
 example (x : ℚ) (h : x > 5) : True := by
   minimize x
-  -- Creates: have : 5 ≤ x := by linarith
+  -- Creates: have : 5 < x := by linarith
   trivial
 ```
 
@@ -358,7 +358,7 @@ example (x : ℚ) (h1 : x < 0) (h2 : x > 5) : True := by
 
 * `maximize` - finds an upper bound for a linear expression
 -/
-elab "minimize" e_stx:term h_stx:(withArg)? : tactic => do
+elab "minimize" e_stx:term h_stx:(withArg)? : tactic => withMainContext do
   let e_exp : Expr ← Elab.Tactic.elabTerm e_stx none
   -- Compute the bound, handling exceptions explicitly
   match ← computeOptimalBound e_exp false (← getMainGoal) with
