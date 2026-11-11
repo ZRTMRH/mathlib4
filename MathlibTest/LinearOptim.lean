@@ -1,4 +1,4 @@
-import Mathlib.Tactic.LinearOptim.Main
+import Mathlib.Tactic.LinearOptim
 
 set_option linter.unusedVariables false
 set_option autoImplicit false
