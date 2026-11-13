@@ -190,6 +190,44 @@ end BoundComputation
 
 section TacticImplementation
 
+/-- Runs `maximize e` (if `isMaximize`) or `minimize e`, naming the new hypothesis `h` if given:
+computes the optimal bound, suggests a `have` stating it, and runs that `have`. The bound is
+strict if `linarith` can prove the strict version. -/
+def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM Unit :=
+  withMainContext do
+  let noBound (reason : String) : MessageData :=
+    m!"{if isMaximize then "maximize: an upper" else "minimize: a lower"} bound cannot be \
+      produced for {e}.\n    {reason}"
+  let inconsistent := noBound "The constraints may be inconsistent."
+  match ← computeOptimalBound (← Elab.Tactic.elabTerm e none) isMaximize (← getMainGoal) with
+  | .error .inconsistent => throwError inconsistent
+  | .error .unbounded => throwError noBound "The expression may be unbounded."
+  | .ok bound =>
+    -- The statement of the bound: `e ⋈ bound` for `maximize`, `bound ⋈ e` for `minimize`.
+    let statement (strict : Bool) : TacticM Term :=
+      match isMaximize, strict with
+      | true, true => `($e < $(quote bound))
+      | true, false => `($e ≤ $(quote bound))
+      | false, true => `($(quote bound) < $e)
+      | false, false => `($(quote bound) ≤ $e)
+    -- Check which inequality type can be proved
+    let canProveStrict ← try
+        let strictGoal ← mkFreshExprMVar (← elabTerm (← statement true) none)
+        Linarith.linarith false [] {} strictGoal.mvarId!
+        pure true
+      catch _ =>
+        pure false
+    -- Inconsistent hypotheses prove every bound, and in particular a strict one.
+    if canProveStrict then
+      if ← hypothesesInconsistent (← getMainGoal) then
+        throwError inconsistent
+    let t ← statement canProveStrict
+    let tacticStx ← match h with
+      | some v => `(tactic| have $v : $t := by linarith)
+      | none => `(tactic| have : $t := by linarith)
+    -- Execute and suggest the tactic
+    Lean.Meta.Tactic.TryThis.addSuggestion (← getRef) tacticStx
+    Elab.Tactic.evalTactic tacticStx
 
 /-- The `maximize` tactic finds an upper bound for a linear expression given linear constraints.
 
@@ -254,49 +292,7 @@ example (x : ℚ) (h1 : x > 0) (h2 : x < -5) : True := by
 syntax (name := maximize) "maximize " term (" with " ident)? : tactic
 
 elab_rules : tactic
-  | `(tactic| maximize $e_stx $[with $h]?) => withMainContext do
-    let e_exp : Expr ← Elab.Tactic.elabTerm e_stx none
-    -- Compute the bound, handling exceptions explicitly
-    match ← computeOptimalBound e_exp true (← getMainGoal) with
-    | .error .inconsistent =>
-      throwError "maximize: an upper bound cannot be produced for {e_stx}.
-    The constraints may be inconsistent."
-    | .error .unbounded =>
-      throwError "maximize: an upper bound cannot be produced for {e_stx}.
-    The expression may be unbounded."
-    | .ok bound =>
-      -- Check which inequality type can be proved
-      let canProveStrict ← (← getMainGoal).withContext do
-        try
-          -- Create a fresh goal for the strict inequality
-          let strictType ← elabTerm (← `($e_stx < $(quote bound))) none
-          let strictGoal ← mkFreshExprMVar strictType
-          Mathlib.Tactic.Linarith.linarith false [] {} strictGoal.mvarId!
-          pure true
-        catch _ =>
-          pure false
-
-      -- Inconsistent hypotheses prove every bound, and in particular a strict one.
-      if canProveStrict then
-        if ← hypothesesInconsistent (← getMainGoal) then
-          throwError "maximize: an upper bound cannot be produced for {e_stx}.
-    The constraints may be inconsistent."
-
-      -- Create the appropriate tactic syntax
-      let tacticStx : TSyntax `tactic ← if canProveStrict then
-        match h with
-        | some v =>
-          `(tactic| have $v : $e_stx < $(quote bound) := by linarith)
-        | none => `(tactic| have : $e_stx < $(quote bound) := by linarith)
-      else
-        match h with
-        | some v =>
-          `(tactic| have $v : $e_stx ≤ $(quote bound) := by linarith)
-        | none => `(tactic| have : $e_stx ≤ $(quote bound) := by linarith)
-
-      -- Execute and suggest the tactic
-      Lean.Meta.Tactic.TryThis.addSuggestion (← getRef) tacticStx
-      Elab.Tactic.evalTactic tacticStx
+  | `(tactic| maximize $e $[with $h]?) => runLinearOptim true e h
 
 /-- The `minimize` tactic finds a lower bound for a linear expression given linear constraints.
 
@@ -361,49 +357,7 @@ example (x : ℚ) (h1 : x < 0) (h2 : x > 5) : True := by
 syntax (name := minimize) "minimize " term (" with " ident)? : tactic
 
 elab_rules : tactic
-  | `(tactic| minimize $e_stx $[with $h]?) => withMainContext do
-    let e_exp : Expr ← Elab.Tactic.elabTerm e_stx none
-    -- Compute the bound, handling exceptions explicitly
-    match ← computeOptimalBound e_exp false (← getMainGoal) with
-    | .error .inconsistent =>
-      throwError "minimize: a lower bound cannot be produced for {e_stx}.
-    The constraints may be inconsistent."
-    | .error .unbounded =>
-      throwError "minimize: a lower bound cannot be produced for {e_stx}.
-    The expression may be unbounded."
-    | .ok bound =>
-      -- Check which inequality type can be proved
-      let canProveStrict ← (← getMainGoal).withContext do
-        try
-          -- Create a fresh goal for the strict inequality
-          let strictType ← elabTerm (← `($(quote bound) < $e_stx)) none
-          let strictGoal ← mkFreshExprMVar strictType
-          Mathlib.Tactic.Linarith.linarith false [] {} strictGoal.mvarId!
-          pure true
-        catch _ =>
-          pure false
-
-      -- Inconsistent hypotheses prove every bound, and in particular a strict one.
-      if canProveStrict then
-        if ← hypothesesInconsistent (← getMainGoal) then
-          throwError "minimize: a lower bound cannot be produced for {e_stx}.
-    The constraints may be inconsistent."
-
-      -- Create the appropriate tactic syntax
-      let tacticStx : TSyntax `tactic ← if canProveStrict then
-        match h with
-        | some v =>
-          `(tactic| have $v : $(quote bound) < $e_stx := by linarith)
-        | none => `(tactic| have : $(quote bound) < $e_stx := by linarith)
-      else
-        match h with
-        | some v =>
-          `(tactic| have $v : $(quote bound) ≤ $e_stx := by linarith)
-        | none => `(tactic| have : $(quote bound) ≤ $e_stx := by linarith)
-
-      -- Execute and suggest the tactic
-      Lean.Meta.Tactic.TryThis.addSuggestion (← getRef) tacticStx
-      Elab.Tactic.evalTactic tacticStx
+  | `(tactic| minimize $e $[with $h]?) => runLinearOptim false e h
 
 end TacticImplementation
 
