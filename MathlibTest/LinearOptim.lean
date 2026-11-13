@@ -1132,3 +1132,103 @@ example (h : ∃ x : ℚ, 1 ≤ x ∧ x ≤ 3) : True := by
   obtain ⟨x, hx1, hx2⟩ := h
   minimize x
   trivial
+
+/-! ### The same preprocessing as `linarith` -/
+
+-- Casts of natural numbers are nonnegative.
+/--
+info: Try this:
+  [apply] have : x ≤ 0 := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (n : ℕ) (h : x ≤ -(n : ℚ)) : True := by
+  maximize x
+  trivial
+/--
+info: Try this:
+  [apply] have : x ≤ 5 := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (n : ℕ) (h : x ≤ 5 - (n : ℚ)) (h2 : x ≤ 10) : True := by
+  maximize x
+  trivial
+/--
+info: Try this:
+  [apply] have : x ≤ 4 := by linarith
+-/
+#guard_msgs in
+example (m n : ℕ) (x : ℚ) (h : x ≤ 4 - (m : ℚ) - 2 * (n : ℚ)) : True := by
+  maximize x
+  trivial
+-- The cast may occur only in the expression.
+/--
+info: Try this:
+  [apply] have : 0 ≤ (n : ℚ) := by linarith
+-/
+#guard_msgs in
+example (n : ℕ) : True := by
+  minimize (n : ℚ)
+  trivial
+-- That `n` is a natural number is not used beyond `0 ≤ (n : ℚ)`.
+/--
+info: Try this:
+  [apply] have : (n : ℚ) ≤ 7 / 2 := by linarith
+-/
+#guard_msgs in
+example (n : ℕ) (h : (n : ℚ) ≤ 7 / 2) : True := by
+  maximize (n : ℚ)
+  trivial
+-- Casts of integers can be negative.
+/--
+error: maximize: an upper bound cannot be produced for x.
+    The expression may be unbounded.
+-/
+#guard_msgs in
+example (x : ℚ) (k : ℤ) (h : x ≤ -(k : ℚ)) : True := by
+  maximize x
+  trivial
+-- Conjunctions are split.
+/--
+info: Try this:
+  [apply] have : x + y ≤ 5 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h : x ≤ 2 ∧ y ≤ 3) : True := by
+  maximize x + y
+  trivial
+
+/-! ### Variables of the expression that no hypothesis mentions -/
+
+/--
+error: maximize: an upper bound cannot be produced for y.
+    The expression may be unbounded.
+-/
+#guard_msgs in
+example (x y : ℚ) (h : x ≤ 3) : True := by
+  maximize y
+  trivial
+/--
+error: minimize: a lower bound cannot be produced for x + y.
+    The expression may be unbounded.
+-/
+#guard_msgs in
+example (x y : ℚ) (h : x ≤ 3) (h' : 0 ≤ x) : True := by
+  minimize x + y
+  trivial
+/--
+error: maximize: an upper bound cannot be produced for y.
+    The constraints may be inconsistent.
+-/
+#guard_msgs in
+example (x y : ℚ) (h : x ≤ 3) (h' : 4 ≤ x) : True := by
+  maximize y
+  trivial
+-- A fraction in the expression changes the scaling factor.
+/--
+info: Try this:
+  [apply] have : x / 3 + y / 2 ≤ 7 / 6 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (hy : y ≤ 1) (hx : x ≤ 2) : True := by
+  maximize x / 3 + y / 2
+  trivial

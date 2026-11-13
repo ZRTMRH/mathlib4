@@ -67,7 +67,17 @@ Otherwise it returns `some (comps, maxVar, goalScalingFactor) : List Comp × ℕ
 def parseLinarithStructure (ty H : Expr) (z : FVarId)
     (cfg : TransparencyMode := .reducible) : MetaM (Option (List Comp × ℕ × ℤ)) := do
   let hyps := H :: (← getLocalHyps).toList
-  let es ← Linarith.preprocessSimple Linarith.defaultLinearOptimPreprocessors hyps
+  -- Preprocess as `linarith` does with its default configuration, so that the bound is computed
+  -- from the same facts that `linarith` later uses to prove it. In particular, this adds the facts
+  -- `0 ≤ (n : K)` for the casts of natural numbers. The preprocessors need a goal, and it has to
+  -- live in the current context, which contains `z`.
+  let linarithCfg : LinarithConfig := {}
+  let pps := if linarithCfg.splitHypotheses then
+      Linarith.splitConjunctions.globalize.branching :: linarithCfg.preprocessors
+    else linarithCfg.preprocessors
+  let g ← mkFreshExprMVar (mkConst ``False)
+  let [(_, es)] ← Linarith.preprocess pps g.mvarId! hyps
+    | throwError "linear optimization: preprocessing unexpectedly split into several cases"
   let hypSet ← es.filterM (fun h => return ty == (← typeOfIneqProof h))
   let (comps, maxVar, inputs) ← Mathlib.Tactic.Linarith.getLinearCombinations cfg hypSet
   -- Find the comparison coming from `H`: its hypothesis is the only one mentioning `z`.
