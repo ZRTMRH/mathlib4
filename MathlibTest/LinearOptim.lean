@@ -1197,6 +1197,40 @@ example (x y : ℚ) (h : x ≤ 2 ∧ y ≤ 3) : True := by
   maximize x + y
   trivial
 
+-- The facts about casts come before the dummy hypothesis.
+/--
+info: Try this:
+  [apply] have : 1 ≤ x + (n : ℚ) := by linarith
+-/
+#guard_msgs in
+example (n : ℕ) (x : ℚ) (h : 1 ≤ x) : True := by
+  minimize x + (n : ℚ)
+  trivial
+/--
+info: Try this:
+  [apply] have : x - (n : ℚ) ≤ 3 := by linarith
+-/
+#guard_msgs in
+example (n : ℕ) (x : ℚ) (h : x ≤ 3) : True := by
+  maximize x - (n : ℚ)
+  trivial
+/--
+info: Try this:
+  [apply] have : x ≤ 4 := by linarith
+-/
+#guard_msgs in
+example (n : ℕ) (x : ℚ) (h : x + (n : ℚ) ≤ 4) : True := by
+  maximize x
+  trivial
+/--
+info: Try this:
+  [apply] have : 2 * x + (m : ℚ) / 3 - (m : ℚ) / 3 ≤ 8 := by linarith
+-/
+#guard_msgs in
+example (n m : ℕ) (x : ℚ) (h : x + (n : ℚ) ≤ 4) (h2 : 0 ≤ x) : True := by
+  maximize 2 * x + (m : ℚ) / 3 - (m : ℚ) / 3
+  trivial
+
 /-! ### Variables of the expression that no hypothesis mentions -/
 
 /--

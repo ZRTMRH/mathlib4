@@ -14,7 +14,9 @@ public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Optimize
 
 This file implements `maximize` and `minimize` tactics that find upper and lower
 bounds for linear expressions given linear constraints using the simplex algorithm.
-The bounds are optimal over linearly ordered fields, the only types the tactics accept.
+The tactics accept expressions in linearly ordered fields only. The bounds are optimal with respect
+to the facts that `linarith` uses: the hypotheses after `linarith`'s preprocessing, in which
+nonlinear terms such as `x * y` are treated as atoms.
 
 ## Main declarations
 
@@ -47,21 +49,22 @@ namespace Mathlib.Tactic.LinearOptim
 
 section Preprocessing
 
-/-- Parse the linarith structure by turning hypotheses and goal into a matrix.
+/-- Turns the hypotheses in the local context, together with a dummy hypothesis `H`, into the
+linear comparisons that `linarith` would use.
 
-This function processes linear constraints through the linarith pipeline and extracts
-the scaling factor introduced by the `cancelDenoms` preprocessor. The caller creates a dummy
-hypothesis `H : e < z`, where `z` is a fresh variable, to capture how the expression `e`
-is transformed. The preprocessor scales this to `k*e < k*z`, which becomes `k*e - k*z < 0`.
-The coefficient `-k` of the dummy variable `z` gives us the scaling factor.
+The caller creates the dummy hypothesis `H : e < z`, where `z` is a fresh variable, to capture how
+the expression `e` is transformed. Preprocessing turns it into `e - z < 0`, which `cancelDenoms`
+may scale to `k*e - k*z < 0`; the coefficient `-k` of `z` gives the scaling factor `k`.
 
 The comparison coming from `H` is the only one that mentions `z`, so `z` is a variable that occurs
 in it and in no other comparison. Any other such variable is a part of `e` that no hypothesis
-constrains, so `e` is unbounded; in that case this function returns `none`.
+constrains, so no bound on `e` follows from the hypotheses (in which nonlinear terms such as
+`x * y` are atoms): either `e` is unbounded or the hypotheses are inconsistent. In that case this
+function returns `none`, and the caller tells the two apart.
 
 Otherwise it returns `some (comps, maxVar, goalScalingFactor) : List Comp × ℕ × ℤ` where:
-- `comps` are the processed constraints with the dummy variable removed, the one coming from `H`
-  last
+- `comps` are the comparisons with the dummy variable removed: first the comparison `-1 < 0` added
+  by `getLinearCombinations`, last the one coming from `H`
 - `maxVar` is the maximum variable index (after removing the dummy variable)
 - `goalScalingFactor` is the extracted scaling factor `k` -/
 def parseLinarithStructure (ty H : Expr) (z : FVarId)
@@ -77,7 +80,7 @@ def parseLinarithStructure (ty H : Expr) (z : FVarId)
     else linarithCfg.preprocessors
   let g ← mkFreshExprMVar (mkConst ``False)
   let [(_, es)] ← Linarith.preprocess pps g.mvarId! hyps
-    | throwError "linear optimization: preprocessing unexpectedly split into several cases"
+    | throwError "linear optimization: internal error: preprocessing split into several cases"
   -- As in `linarith`, compare the types up to definitional equality: `ty` may be an assigned
   -- metavariable, e.g. after `refine fun x => ?_`.
   let hypSet ← es.filterM fun h => do isDefEq ty (← typeOfIneqProof h)
@@ -85,21 +88,22 @@ def parseLinarithStructure (ty H : Expr) (z : FVarId)
   -- Find the comparison coming from `H`: its hypothesis is the only one mentioning `z`.
   let mentionsZ ← hypSet.mapM fun h => return (← instantiateMVars (← inferType h)).containsFVar z
   let some hIdx := mentionsZ.idxOf? true
-    | throwError "linear optimization: the dummy hypothesis was lost during preprocessing"
+    | throwError "linear optimization: internal error: the dummy hypothesis was lost"
   let some goalPos := inputs.findIdx? (·.2 == some hIdx)
-    | throwError "linear optimization: the dummy hypothesis has no linear form"
+    | throwError "linear optimization: internal error: the dummy hypothesis has no linear form"
   let goalComp := comps[goalPos]!
   let others := comps.eraseIdx goalPos
   -- The variables of `goalComp` that occur in no other comparison.
   match goalComp.coeffs.filter fun (v, _) => others.all fun c => !c.coeffs.any (·.1 == v) with
   | [(zIdx, negScalingFactor)] =>
     if 0 ≤ negScalingFactor then
-      throwError "linear optimization: unexpected scaling factor {-negScalingFactor}"
+      throwError "linear optimization: internal error: scaling factor {-negScalingFactor}"
     -- Remove `z`, renumbering the variables after it.
     let removeZ (c : Comp) : Comp :=
       { c with coeffs := c.coeffs.filterMap fun (v, a) =>
           if v == zIdx then none else some (if zIdx < v then v - 1 else v, a) }
     return some ((others ++ [goalComp]).map removeZ, maxVar - 1, -negScalingFactor)
+  | [] => throwError "linear optimization: internal error: the dummy variable occurs elsewhere"
   | _ => return none
 
 end Preprocessing
@@ -114,8 +118,8 @@ a matrix for `simplexOptimalBound`. The matrix has dimensions `(maxVar + 1) × (
 
 The function reorders and transforms coefficients:
 - The objective function `rH` goes to the last column with negated coefficients
-- The second-to-last constraint from `rr` is moved to the first column
-- Other constraints maintain their relative positions
+- The last comparison of `rr`, which is the comparison `-1 < 0`, goes to the first column
+- The other comparisons keep their relative positions
 
 This specific ordering prepares the matrix for the simplex algorithm's expected format. -/
 def preprocessLinearOptim (matType : ℕ → ℕ → Type) [UsableInSimplexAlgorithm matType]
