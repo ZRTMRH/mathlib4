@@ -50,33 +50,45 @@ section Preprocessing
 /-- Parse the linarith structure by turning hypotheses and goal into a matrix.
 
 This function processes linear constraints through the linarith pipeline and extracts
-the scaling factor introduced by the `cancelDenoms` preprocessor. It creates a dummy
-hypothesis `e < z` (where `z` is a fresh variable) to capture how the expression `e`
+the scaling factor introduced by the `cancelDenoms` preprocessor. The caller creates a dummy
+hypothesis `H : e < z`, where `z` is a fresh variable, to capture how the expression `e`
 is transformed. The preprocessor scales this to `k*e < k*z`, which becomes `k*e - k*z < 0`.
 The coefficient `-k` of the dummy variable `z` gives us the scaling factor.
 
-Returns `(comps, maxVar, goalScalingFactor) : List Comp × ℕ × ℤ` where:
-- `comps` are the processed constraints with dummy terms removed
-- `maxVar` is the maximum variable index (adjusted for dummy removal)
+The comparison coming from `H` is the only one that mentions `z`, so `z` is a variable that occurs
+in it and in no other comparison. Any other such variable is a part of `e` that no hypothesis
+constrains, so `e` is unbounded; in that case this function returns `none`.
+
+Otherwise it returns `some (comps, maxVar, goalScalingFactor) : List Comp × ℕ × ℤ` where:
+- `comps` are the processed constraints with the dummy variable removed, the one coming from `H`
+  last
+- `maxVar` is the maximum variable index (after removing the dummy variable)
 - `goalScalingFactor` is the extracted scaling factor `k` -/
-partial def parseLinarithStructure (ty H : Expr)
-    (cfg : TransparencyMode := .reducible) : MetaM (List Comp × ℕ × ℤ) := do
+def parseLinarithStructure (ty H : Expr) (z : FVarId)
+    (cfg : TransparencyMode := .reducible) : MetaM (Option (List Comp × ℕ × ℤ)) := do
   let hyps := H :: (← getLocalHyps).toList
   let es ← Linarith.preprocessSimple Linarith.defaultLinearOptimPreprocessors hyps
   let hypSet ← es.filterM (fun h => return ty == (← typeOfIneqProof h))
-  let (comps, maxVar, _) ← Mathlib.Tactic.Linarith.getLinearCombinations cfg hypSet
-  -- The `computeOptimalBound` function creates a dummy variable `z`
-  -- and dummy hypothesis of the form `e < z`.
-  -- The `cancelDenoms` preprocessor transforms this into `k*e < k * z`, which is then
-  -- normalized to `k*e - k * z < 0`. Linarith's parser treats the constant `-k`
-  -- as the coefficient of a special variable with the largest index encountered.
-  -- We extract this coefficient and negate it to recover the scaling factor `k`.
-  -- We also strip out all the dummy `z`-terms (there should only be one, in `k*e - k * z`)
-  let goalComp := comps.getLast!
-  let (dummyVar, negScalingFactor) := goalComp.coeffs.head!
-  let comps' := comps.map fun c ↦
-    { c with coeffs := c.coeffs.filter (fun p ↦ p.1 != dummyVar) }
-  return (comps', maxVar - 1, -negScalingFactor)
+  let (comps, maxVar, inputs) ← Mathlib.Tactic.Linarith.getLinearCombinations cfg hypSet
+  -- Find the comparison coming from `H`: its hypothesis is the only one mentioning `z`.
+  let mentionsZ ← hypSet.mapM fun h => return (← instantiateMVars (← inferType h)).containsFVar z
+  let some hIdx := mentionsZ.idxOf? true
+    | throwError "linear optimization: the dummy hypothesis was lost during preprocessing"
+  let some goalPos := inputs.findIdx? (·.2 == some hIdx)
+    | throwError "linear optimization: the dummy hypothesis has no linear form"
+  let goalComp := comps[goalPos]!
+  let others := comps.eraseIdx goalPos
+  -- The variables of `goalComp` that occur in no other comparison.
+  match goalComp.coeffs.filter fun (v, _) => others.all fun c => !c.coeffs.any (·.1 == v) with
+  | [(zIdx, negScalingFactor)] =>
+    if 0 ≤ negScalingFactor then
+      throwError "linear optimization: unexpected scaling factor {-negScalingFactor}"
+    -- Remove `z`, renumbering the variables after it.
+    let removeZ (c : Comp) : Comp :=
+      { c with coeffs := c.coeffs.filterMap fun (v, a) =>
+          if v == zIdx then none else some (if zIdx < v then v - 1 else v, a) }
+    return some ((others ++ [goalComp]).map removeZ, maxVar - 1, -negScalingFactor)
+  | _ => return none
 
 end Preprocessing
 
@@ -154,11 +166,16 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
   -- To find max(e), we run the pipeline on `e`.
   -- To find min(e), we run the pipeline on `-e` and use the identity min(e) = -max(-e).
   let target_exp := if isMaximize then e_exp else q(-$e_exp)
+  -- No bound follows from the hypotheses: either the expression is unbounded or the hypotheses are
+  -- inconsistent. Tell the two apart with `linarith`.
+  let unboundedOrInconsistent : MetaM (Except LinearOptimException Rat) := do
+    return .error (if ← hypothesesInconsistent g then .inconsistent else .unbounded)
   -- The dummy hypothesis is always `< z` (for a new dummy variable `z`) to ensure the scaling
   -- factor `k` is positive and that the Comp object represents `k*E`.
   withLocalDecl .anonymous .default ty fun (z : Q($ty)) ↦ do
   let H := q(show $target_exp < $z from sorry)
-  let (comps, maxVar, scalingFactor) ← parseLinarithStructure ty H
+  let some (comps, maxVar, scalingFactor) ← parseLinarithStructure ty H z.fvarId!
+    | unboundedOrInconsistent
   let rH :: rr := comps.reverse | failure
   let A := preprocessLinearOptim DenseMatrix rH rr maxVar
   match ← Linarith.SimplexAlgorithm.simplexOptimalBound A with
@@ -175,13 +192,7 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
       -- The target was `-e`. We found `max(-e)`.
       -- So we return `-max(-e)` to get `min(e)`.
       return Except.ok (-max_of_target)
-  -- No bound follows from the hypotheses: either the expression is unbounded or the hypotheses are
-  -- inconsistent. Tell the two apart with `linarith`.
-  | .error .unbounded =>
-    if ← hypothesesInconsistent g then
-      return Except.error .inconsistent
-    else
-      return Except.error .unbounded
+  | .error .unbounded => unboundedOrInconsistent
   | .error e => return Except.error e
 
 
