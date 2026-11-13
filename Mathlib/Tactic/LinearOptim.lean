@@ -78,7 +78,9 @@ def parseLinarithStructure (ty H : Expr) (z : FVarId)
   let g ← mkFreshExprMVar (mkConst ``False)
   let [(_, es)] ← Linarith.preprocess pps g.mvarId! hyps
     | throwError "linear optimization: preprocessing unexpectedly split into several cases"
-  let hypSet ← es.filterM (fun h => return ty == (← typeOfIneqProof h))
+  -- As in `linarith`, compare the types up to definitional equality: `ty` may be an assigned
+  -- metavariable, e.g. after `refine fun x => ?_`.
+  let hypSet ← es.filterM fun h => do isDefEq ty (← typeOfIneqProof h)
   let (comps, maxVar, inputs) ← Mathlib.Tactic.Linarith.getLinearCombinations cfg hypSet
   -- Find the comparison coming from `H`: its hypothesis is the only one mentioning `z`.
   let mentionsZ ← hypSet.mapM fun h => return (← instantiateMVars (← inferType h)).containsFVar z
@@ -217,38 +219,45 @@ strict if `linarith` can prove the strict version. -/
 def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM Unit :=
   withMainContext do
   let noBound (reason : String) : MessageData :=
-    m!"{if isMaximize then "maximize: an upper" else "minimize: a lower"} bound cannot be \
-      produced for {e}.\n    {reason}"
+    if isMaximize then m!"maximize: an upper bound cannot be produced for {e}.\n    {reason}"
+    else m!"minimize: a lower bound cannot be produced for {e}.\n    {reason}"
   let inconsistent := noBound "The constraints may be inconsistent."
-  match ← computeOptimalBound (← Elab.Tactic.elabTerm e none) isMaximize (← getMainGoal) with
+  let eExpr ← instantiateMVars (← elabTerm e none)
+  if eExpr.hasExprMVar then
+    throwError "{if isMaximize then "maximize" else "minimize"}: the expression {e} contains holes"
+  match ← computeOptimalBound eExpr isMaximize (← getMainGoal) with
   | .error .inconsistent => throwError inconsistent
   | .error .unbounded => throwError noBound "The expression may be unbounded."
   | .ok bound =>
-    -- The statement of the bound: `e ⋈ bound` for `maximize`, `bound ⋈ e` for `minimize`.
+    -- The statement of the bound: `e < bound` or `e ≤ bound` for `maximize`, and `bound < e` or
+    -- `bound ≤ e` for `minimize`.
     let statement (strict : Bool) : TacticM Term :=
       match isMaximize, strict with
       | true, true => `($e < $(quote bound))
       | true, false => `($e ≤ $(quote bound))
       | false, true => `($(quote bound) < $e)
       | false, false => `($(quote bound) ≤ $e)
-    -- Check which inequality type can be proved
-    let canProveStrict ← try
-        let strictGoal ← mkFreshExprMVar (← elabTerm (← statement true) none)
-        Linarith.linarith false [] {} strictGoal.mvarId!
-        pure true
-      catch _ =>
-        pure false
+    -- Check whether `linarith` proves the strict version of the bound.
+    let canProveStrict ← succeeds do
+      let strictGoal ← mkFreshExprMVar (← elabTerm (← statement true) none)
+      Linarith.linarith false [] {} strictGoal.mvarId!
     -- Inconsistent hypotheses prove every bound, and in particular a strict one.
     if canProveStrict then
       if ← hypothesesInconsistent (← getMainGoal) then
         throwError inconsistent
     let t ← statement canProveStrict
-    let tacticStx ← match h with
-      | some v => `(tactic| have $v : $t := by linarith)
-      | none => `(tactic| have : $t := by linarith)
-    -- Execute and suggest the tactic
-    Lean.Meta.Tactic.TryThis.addSuggestion (← getRef) tacticStx
-    Elab.Tactic.evalTactic tacticStx
+    -- Suggest the `have`, and run it. Without a name, the suggestion is `have : t := ...`, which
+    -- introduces `this` when it is pasted into the proof; when we run it ourselves, `this` has to
+    -- be written explicitly, as the name introduced by `have :` in a quotation is inaccessible.
+    let (suggestion, tac) ← match h with
+      | some v => do
+        let tac ← `(tactic| have $v : $t := by linarith)
+        pure (tac, tac)
+      | none => do
+        pure (← `(tactic| have : $t := by linarith),
+          ← `(tactic| have $(mkIdent `this) : $t := by linarith))
+    Meta.Tactic.TryThis.addSuggestion (← getRef) suggestion
+    evalTactic tac
 
 /-- The `maximize` tactic finds an upper bound for a linear expression given linear constraints.
 

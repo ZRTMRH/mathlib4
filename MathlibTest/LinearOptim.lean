@@ -1232,3 +1232,41 @@ info: Try this:
 example (x y : ℚ) (hy : y ≤ 1) (hx : x ≤ 2) : True := by
   maximize x / 3 + y / 2
   trivial
+
+/-! ### Elaboration of the expression -/
+
+-- The types of the variables may be assigned metavariables.
+/--
+info: Try this:
+  [apply] have : x ≤ 2 := by linarith
+-/
+#guard_msgs in
+example : ∀ x : ℚ, x ≤ 2 → True := by
+  refine fun x hx => ?_
+  maximize x
+  trivial
+/--
+info: Try this:
+  [apply] have : y ≤ 3 := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (hx : x ≤ 2) : True := by
+  let y := x + 1
+  maximize y
+  trivial
+-- Without a name, the new hypothesis is `this`.
+/--
+info: Try this:
+  [apply] have : x ≤ 2 := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (hx : x ≤ 2) : x ≤ 2 := by
+  maximize x
+  exact this
+/--
+error: maximize: the expression x + _ contains holes
+-/
+#guard_msgs in
+example (x : ℚ) (hx : x ≤ 2) : True := by
+  maximize x + _
+  trivial
