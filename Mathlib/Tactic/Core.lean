@@ -90,8 +90,6 @@ namespace Mathlib.Tactic
 -- FIXME: we cannot write this line when `Lean.Parser.Tactic` is open,
 -- or it will get an extra `group`
 syntax withArgs := " with" (ppSpace colGt ident)+
-/-- A single name introduced by ` with h`, as in `maximize e with h`. -/
-syntax withArg := " with" ident
 syntax usingArg := " using " term
 
 open Lean Parser.Tactic
@@ -110,11 +108,6 @@ def getDSimpArgs : Syntax → TacticM (Array Syntax)
 def getWithArgs : Syntax → TacticM (Array Syntax)
   | `(withArgs| with $args*) => pure args
   | _                        => Elab.throwUnsupportedSyntax
-
-/-- Extract the argument from a `withArg` syntax as a syntax identifier -/
-def getWithArg : Syntax → TacticM Syntax
-  | `(withArg| with $arg) => pure arg
-  | _                     => Elab.throwUnsupportedSyntax
 
 /-- Extract the argument from a `usingArg` syntax as a syntax term -/
 def getUsingArg : Syntax → TacticM Syntax
