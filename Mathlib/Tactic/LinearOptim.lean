@@ -70,17 +70,15 @@ Otherwise it returns `some (comps, maxVar, goalScalingFactor) : List Comp × ℕ
 def parseLinarithStructure (ty H : Expr) (z : FVarId)
     (cfg : TransparencyMode := .reducible) : MetaM (Option (List Comp × ℕ × ℤ)) := do
   let hyps := H :: (← getLocalHyps).toList
-  -- Preprocess as `linarith` does with its default configuration, so that the bound is computed
-  -- from the same facts that `linarith` later uses to prove it. In particular, this adds the facts
-  -- `0 ≤ (n : K)` for the casts of natural numbers. The preprocessors need a goal, and it has to
-  -- live in the current context, which contains `z`.
-  let linarithCfg : LinarithConfig := {}
-  let pps := if linarithCfg.splitHypotheses then
-      Linarith.splitConjunctions.globalize.branching :: linarithCfg.preprocessors
-    else linarithCfg.preprocessors
+  -- Preprocess with the preprocessors that `linarith` uses in its default configuration (see
+  -- `Linarith.runLinarith`), so that the bound is computed from the same facts that `linarith`
+  -- later uses to prove it. In particular, this adds the facts `0 ≤ (n : K)` for the casts of
+  -- natural numbers. The preprocessors need a goal, and it has to live in the current context,
+  -- which contains `z`.
+  let pps := Linarith.splitConjunctions.globalize.branching :: Linarith.defaultPreprocessors
   let g ← mkFreshExprMVar (mkConst ``False)
   let [(_, es)] ← Linarith.preprocess pps g.mvarId! hyps
-    | throwError "linear optimization: internal error: preprocessing split into several cases"
+    | throwError "linear optimization: internal error: preprocessing did not give exactly one case"
   -- As in `linarith`, compare the types up to definitional equality: `ty` may be an assigned
   -- metavariable, e.g. after `refine fun x => ?_`.
   let hypSet ← es.filterM fun h => do isDefEq ty (← typeOfIneqProof h)
@@ -144,11 +142,13 @@ end MatrixPreprocessing
 
 section BoundComputation
 
-/-- Whether `linarith` can prove `False` from the hypotheses in the context of `g`. -/
-def hypothesesInconsistent (g : MVarId) : MetaM Bool := g.withContext do
+/-- Whether `linarith` can prove `False` from the hypotheses in the context of `g`, together with
+the facts that its preprocessing derives from the expression `e`, such as `0 ≤ (n : K)` for the
+casts of natural numbers in `e`. These facts are also used to compute the bound on `e`. -/
+def hypothesesInconsistent (g : MVarId) (e : Expr) : MetaM Bool := g.withContext do
   let goal ← mkFreshExprMVar (mkConst ``False)
   try
-    Linarith.linarith false [] {} goal.mvarId!
+    Linarith.linarith false [← mkEqRefl e] {} goal.mvarId!
     return true
   catch _ =>
     return false
@@ -185,7 +185,7 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
   -- No bound follows from the hypotheses: either the expression is unbounded or the hypotheses are
   -- inconsistent. Tell the two apart with `linarith`.
   let unboundedOrInconsistent : MetaM (Except LinearOptimException Rat) := do
-    return .error (if ← hypothesesInconsistent g then .inconsistent else .unbounded)
+    return .error (if ← hypothesesInconsistent g e_exp then .inconsistent else .unbounded)
   -- The dummy hypothesis is always `< z` (for a new dummy variable `z`) to ensure the scaling
   -- factor `k` is positive and that the Comp object represents `k*E`.
   withLocalDecl .anonymous .default ty fun (z : Q($ty)) ↦ do
@@ -247,7 +247,7 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
       Linarith.linarith false [] {} strictGoal.mvarId!
     -- Inconsistent hypotheses prove every bound, and in particular a strict one.
     if canProveStrict then
-      if ← hypothesesInconsistent (← getMainGoal) then
+      if ← hypothesesInconsistent (← getMainGoal) eExpr then
         throwError inconsistent
     let t ← statement canProveStrict
     -- Suggest the `have`, and run it. Without a name, the suggestion is `have : t := ...`, which

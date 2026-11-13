@@ -1,4 +1,6 @@
 import Mathlib.Tactic.LinearOptim
+import Mathlib.Basic.NNReal.Defs
+import Mathlib.Tactic.Linarith.NNRealPreprocessor
 
 set_option linter.unusedVariables false
 set_option autoImplicit false
@@ -1229,6 +1231,52 @@ info: Try this:
 #guard_msgs in
 example (n m : ℕ) (x : ℚ) (h : x + (n : ℚ) ≤ 4) (h2 : 0 ≤ x) : True := by
   maximize 2 * x + (m : ℚ) / 3 - (m : ℚ) / 3
+  trivial
+
+-- Conjunctions are split also when nested, and negations inside them are pushed.
+/--
+info: Try this:
+  [apply] have : x + y + z ≤ 6 := by linarith
+-/
+#guard_msgs in
+example (x y z : ℚ) (h : x ≤ 1 ∧ (y ≤ 2 ∧ z ≤ 3)) : True := by
+  maximize x + y + z
+  trivial
+/--
+info: Try this:
+  [apply] have : x + y ≤ 3 := by linarith
+-/
+#guard_msgs in
+example (x y : ℚ) (h : ¬ 1 < x ∧ y ≤ 2) : True := by
+  maximize x + y
+  trivial
+-- As for `linarith`, hypotheses about natural numbers are not used for an expression in `ℚ`.
+/--
+error: maximize: an upper bound cannot be produced for (n : ℚ).
+    The expression may be unbounded.
+-/
+#guard_msgs in
+example (n : ℕ) (h : n ≤ 3) : True := by
+  maximize (n : ℚ)
+  trivial
+-- With `Mathlib.Tactic.Linarith.NNRealPreprocessor`, hypotheses in `ℝ≥0` are used.
+/--
+info: Try this:
+  [apply] have : x ≤ 3 := by linarith
+-/
+#guard_msgs in
+open NNReal in
+example (a : ℝ≥0) (x : ℝ) (h : x ≤ (a : ℝ)) (ha : a ≤ 3) : True := by
+  maximize x
+  trivial
+-- The inconsistency `0 ≤ (n : ℚ)` comes from the expression.
+/--
+error: maximize: an upper bound cannot be produced for (n : ℚ) + x.
+    The constraints may be inconsistent.
+-/
+#guard_msgs in
+example (n : ℕ) (x : ℚ) (h : (n : ℚ) / 2 < -1) : True := by
+  maximize (n : ℚ) + x
   trivial
 
 /-! ### Variables of the expression that no hypothesis mentions -/
