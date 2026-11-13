@@ -22,7 +22,7 @@ nonlinear terms such as `x * y` are treated as atoms.
 
 * `maximize` - Finds an upper bound for a linear expression
 * `minimize` - Finds a lower bound for a linear expression
-* `parseLinarithStructure` - Parses linear constraints into matrix form
+* `parseLinarithStructure` - Turns the hypotheses into the comparisons that `linarith` uses
 * `preprocessLinearOptim` - Converts constraints to matrix for simplex
 * `computeOptimalBound` - Core function computing optimal bounds
 
@@ -82,7 +82,7 @@ def parseLinarithStructure (ty H : Expr) (z : FVarId)
   -- As in `linarith`, compare the types up to definitional equality: `ty` may be an assigned
   -- metavariable, e.g. after `refine fun x => ?_`.
   let hypSet ← es.filterM fun h => do isDefEq ty (← typeOfIneqProof h)
-  let (comps, maxVar, inputs) ← Mathlib.Tactic.Linarith.getLinearCombinations cfg hypSet
+  let (comps, maxVar, inputs) ← getLinearCombinations cfg hypSet
   -- Find the comparison coming from `H`: its hypothesis is the only one mentioning `z`.
   let mentionsZ ← hypSet.mapM fun h => return (← instantiateMVars (← inferType h)).containsFVar z
   let some hIdx := mentionsZ.idxOf? true
@@ -147,11 +147,7 @@ the facts that its preprocessing derives from the expression `e`, such as `0 ≤
 casts of natural numbers in `e`. These facts are also used to compute the bound on `e`. -/
 def hypothesesInconsistent (g : MVarId) (e : Expr) : MetaM Bool := g.withContext do
   let goal ← mkFreshExprMVar (mkConst ``False)
-  try
-    Linarith.linarith false [← mkEqRefl e] {} goal.mvarId!
-    return true
-  catch _ =>
-    return false
+  succeeds <| Linarith.linarith false [← mkEqRefl e] {} goal.mvarId!
 
 /-- Compute the optimal bound (upper bound for maximization, lower bound for minimization).
 
@@ -194,7 +190,7 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
     | unboundedOrInconsistent
   let rH :: rr := comps.reverse | failure
   let A := preprocessLinearOptim DenseMatrix rH rr maxVar
-  match ← Linarith.SimplexAlgorithm.simplexOptimalBound A with
+  match ← simplexOptimalBound A with
   | .ok r_opt =>
     let k_q : ℚ := scalingFactor
     -- This derivation is based on the solver pipeline.
@@ -226,7 +222,8 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
     if isMaximize then m!"maximize: an upper bound cannot be produced for {e}.\n    {reason}"
     else m!"minimize: a lower bound cannot be produced for {e}.\n    {reason}"
   let inconsistent := noBound "The constraints may be inconsistent."
-  let eExpr ← instantiateMVars (← elabTerm e none)
+  -- Without error recovery, so that an error in the expression is the only error reported.
+  let eExpr ← withoutRecover <| elabTerm e none
   if eExpr.hasExprMVar then
     throwError "{if isMaximize then "maximize" else "minimize"}: the expression {e} contains holes"
   match ← computeOptimalBound eExpr isMaximize (← getMainGoal) with

@@ -1,5 +1,4 @@
 import Mathlib.Tactic.LinearOptim
-import Mathlib.Basic.NNReal.Defs
 import Mathlib.Tactic.Linarith.NNRealPreprocessor
 
 set_option linter.unusedVariables false
@@ -1224,6 +1223,7 @@ info: Try this:
 example (n : ℕ) (x : ℚ) (h : x + (n : ℚ) ≤ 4) : True := by
   maximize x
   trivial
+-- A cast that cancels out of the expression.
 /--
 info: Try this:
   [apply] have : 2 * x + (m : ℚ) / 3 - (m : ℚ) / 3 ≤ 8 := by linarith
@@ -1269,7 +1269,7 @@ open NNReal in
 example (a : ℝ≥0) (x : ℝ) (h : x ≤ (a : ℝ)) (ha : a ≤ 3) : True := by
   maximize x
   trivial
--- The inconsistency `0 ≤ (n : ℚ)` comes from the expression.
+-- The fact `0 ≤ (n : ℚ)`, which makes the hypotheses inconsistent, comes from the expression.
 /--
 error: maximize: an upper bound cannot be produced for (n : ℚ) + x.
     The constraints may be inconsistent.
@@ -1277,6 +1277,24 @@ error: maximize: an upper bound cannot be produced for (n : ℚ) + x.
 #guard_msgs in
 example (n : ℕ) (x : ℚ) (h : (n : ℚ) / 2 < -1) : True := by
   maximize (n : ℚ) + x
+  trivial
+
+-- The same when the hypotheses are inconsistent only because of a strict inequality.
+/--
+error: maximize: an upper bound cannot be produced for (n : ℚ) + x.
+    The constraints may be inconsistent.
+-/
+#guard_msgs in
+example (n : ℕ) (x : ℚ) (h : (n : ℚ) / 2 < 0) (hx : x ≤ 1) : True := by
+  maximize (n : ℚ) + x
+  trivial
+-- An error in the expression is reported once.
+/--
+error: Unknown identifier `undefinedThing`
+-/
+#guard_msgs in
+example (x : ℚ) (hx : x ≤ 1) : True := by
+  maximize x + undefinedThing
   trivial
 
 /-! ### Variables of the expression that no hypothesis mentions -/
