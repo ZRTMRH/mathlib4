@@ -1,4 +1,5 @@
 import Mathlib.Tactic.LinearOptim
+import Mathlib.Basic.Real.Basic
 import Mathlib.Tactic.Linarith.NNRealPreprocessor
 
 set_option linter.unusedVariables false
@@ -1370,3 +1371,173 @@ error: Unknown identifier `undefinedThing`
 example (x : ℚ) (hx : x ≤ 1) : True := by
   maximize x + undefinedThing
   trivial
+
+/-! ### Expressions in `ℝ` -/
+
+/--
+info: Try this:
+  [apply] have : x + 2 * y ≤ 6 := by linarith
+-/
+#guard_msgs in
+example (x y : ℝ) (h1 : x + y ≤ 3) (h2 : x ≤ 1) (h3 : 0 ≤ x) : True := by
+  maximize x + 2 * y
+  trivial
+
+-- The bound is strict when it is not reached.
+/--
+info: Try this:
+  [apply] have : 4 * x + y < 6 := by linarith
+-/
+#guard_msgs in
+example (x y : ℝ) (h1 : 3 * x + y < 4) (h2 : x < 2) : True := by
+  maximize 4 * x + y
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 7 / 2 := by linarith
+-/
+#guard_msgs in
+example (x : ℝ) (h : 2 * x ≤ 7) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ -7 / 2 := by linarith
+-/
+#guard_msgs in
+example (x : ℝ) (h : 2 * x + 7 ≤ 0) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : -6 < 4 * x + y := by linarith
+-/
+#guard_msgs in
+example (x y : ℝ) (h1 : 3 * x + y > -4) (h2 : x > -2) : True := by
+  minimize 4 * x + y
+  trivial
+
+/--
+info: Try this:
+  [apply] have : 3 / 2 ≤ x := by linarith
+-/
+#guard_msgs in
+example (x : ℝ) (h : 3 ≤ 2 * x) : True := by
+  minimize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x / 3 + y / 2 ≤ 7 / 6 := by linarith
+-/
+#guard_msgs in
+example (x y : ℝ) (hx : x ≤ 2) (hy : y ≤ 1) : True := by
+  maximize x / 3 + y / 2
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 2 := by linarith
+-/
+#guard_msgs in
+example (x : ℝ) (h : 0.5 * x ≤ 1) : True := by
+  maximize x
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x + 2 * y + 3 * z ≤ 18 := by linarith
+-/
+#guard_msgs in
+example (x y z : ℝ) (h : x + y + z ≤ 6) (hx : 0 ≤ x) (hy : 0 ≤ y) (hz : 0 ≤ z) : True := by
+  maximize x + 2 * y + 3 * z
+  trivial
+
+/--
+info: Try this:
+  [apply] have : x ≤ 2 := by linarith
+-/
+#guard_msgs in
+example (x y : ℝ) (h : x + y = 3) (hy : 1 ≤ y) : True := by
+  maximize x
+  trivial
+
+-- Casts of natural numbers are nonnegative.
+/--
+info: Try this:
+  [apply] have : x ≤ 1 / 2 := by linarith
+-/
+#guard_msgs in
+example (n : ℕ) (x : ℝ) (h : x + n ≤ 1 / 2) : True := by
+  maximize x
+  trivial
+
+/--
+error: maximize: an upper bound cannot be produced for x.
+    The expression may be unbounded.
+-/
+#guard_msgs in
+example (x : ℝ) (h : 0 < x) : True := by
+  maximize x
+  trivial
+
+/--
+error: maximize: an upper bound cannot be produced for x.
+    The constraints may be inconsistent.
+-/
+#guard_msgs in
+example (x : ℝ) (h1 : 0 < x) (h2 : x < -5) : True := by
+  maximize x
+  trivial
+
+-- Terms other than variables and numerals, such as `f 0`, are treated as unknowns.
+/--
+info: Try this:
+  [apply] have : x ≤ 4 := by linarith
+-/
+#guard_msgs in
+example (f : ℝ → ℝ) (x : ℝ) (h : x ≤ f 0) (hf : f 0 ≤ 4) : True := by
+  maximize x
+  trivial
+
+-- `f 0 * x` is a single unknown, unrelated to `x`.
+/--
+error: maximize: an upper bound cannot be produced for x.
+    The expression may be unbounded.
+-/
+#guard_msgs in
+example (f : ℝ → ℝ) (x : ℝ) (h : f 0 * x ≤ 1) (hf : 1 ≤ f 0) : True := by
+  maximize x
+  trivial
+
+-- So is the nonlinear term `x * y`.
+/--
+info: Try this:
+  [apply] have : x * y + x ≤ 3 := by linarith
+-/
+#guard_msgs in
+example (x y : ℝ) (h : x * y ≤ 2) (hx : x ≤ 1) : True := by
+  maximize x * y + x
+  trivial
+
+-- The new hypothesis can be named and used.
+/--
+info: Try this:
+  [apply] have h : x ≤ 1 := by linarith
+-/
+#guard_msgs in
+example (x : ℝ) (hx : x ≤ 1) : x ≤ 1 := by
+  maximize x with h
+  exact h
+
+/--
+info: Try this:
+  [apply] have h : 1 ≤ x := by linarith
+-/
+#guard_msgs in
+example (x : ℝ) (hx : 1 ≤ x) : 1 ≤ x := by
+  minimize x with h
+  exact h
