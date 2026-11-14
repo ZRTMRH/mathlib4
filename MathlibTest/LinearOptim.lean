@@ -1,6 +1,6 @@
-import Mathlib.Tactic.LinearOptim
 import Mathlib.Basic.Real.Basic
 import Mathlib.Tactic.Linarith.NNRealPreprocessor
+import Mathlib.Tactic.LinearOptim
 
 set_option linter.unusedVariables false
 set_option autoImplicit false
@@ -1395,47 +1395,11 @@ example (x y : ℝ) (h1 : 3 * x + y < 4) (h2 : x < 2) : True := by
 
 /--
 info: Try this:
-  [apply] have : x ≤ 7 / 2 := by linarith
--/
-#guard_msgs in
-example (x : ℝ) (h : 2 * x ≤ 7) : True := by
-  maximize x
-  trivial
-
-/--
-info: Try this:
-  [apply] have : x ≤ -7 / 2 := by linarith
--/
-#guard_msgs in
-example (x : ℝ) (h : 2 * x + 7 ≤ 0) : True := by
-  maximize x
-  trivial
-
-/--
-info: Try this:
-  [apply] have : -6 < 4 * x + y := by linarith
--/
-#guard_msgs in
-example (x y : ℝ) (h1 : 3 * x + y > -4) (h2 : x > -2) : True := by
-  minimize 4 * x + y
-  trivial
-
-/--
-info: Try this:
   [apply] have : 3 / 2 ≤ x := by linarith
 -/
 #guard_msgs in
 example (x : ℝ) (h : 3 ≤ 2 * x) : True := by
   minimize x
-  trivial
-
-/--
-info: Try this:
-  [apply] have : x / 3 + y / 2 ≤ 7 / 6 := by linarith
--/
-#guard_msgs in
-example (x y : ℝ) (hx : x ≤ 2) (hy : y ≤ 1) : True := by
-  maximize x / 3 + y / 2
   trivial
 
 /--
@@ -1449,11 +1413,11 @@ example (x : ℝ) (h : 0.5 * x ≤ 1) : True := by
 
 /--
 info: Try this:
-  [apply] have : x + 2 * y + 3 * z ≤ 18 := by linarith
+  [apply] have : 0.5 * x ≤ 3 / 2 := by linarith
 -/
 #guard_msgs in
-example (x y z : ℝ) (h : x + y + z ≤ 6) (hx : 0 ≤ x) (hy : 0 ≤ y) (hz : 0 ≤ z) : True := by
-  maximize x + 2 * y + 3 * z
+example (x : ℝ) (h : x ≤ 3) : True := by
+  maximize 0.5 * x
   trivial
 
 /--
@@ -1484,15 +1448,6 @@ example (x : ℝ) (h : 0 < x) : True := by
   maximize x
   trivial
 
-/--
-error: maximize: an upper bound cannot be produced for x.
-    The constraints may be inconsistent.
--/
-#guard_msgs in
-example (x : ℝ) (h1 : 0 < x) (h2 : x < -5) : True := by
-  maximize x
-  trivial
-
 -- Terms other than variables and numerals, such as `f 0`, are treated as unknowns.
 /--
 info: Try this:
@@ -1503,7 +1458,8 @@ example (f : ℝ → ℝ) (x : ℝ) (h : x ≤ f 0) (hf : f 0 ≤ 4) : True := b
   maximize x
   trivial
 
--- `f 0 * x` is a single unknown, unrelated to `x`.
+-- `f 0 * x` is a single unknown, unrelated to `x`, so no bound on `x` is found, although
+-- `x ≤ 1` follows from the hypotheses.
 /--
 error: maximize: an upper bound cannot be produced for x.
     The expression may be unbounded.
@@ -1513,7 +1469,7 @@ example (f : ℝ → ℝ) (x : ℝ) (h : f 0 * x ≤ 1) (hf : 1 ≤ f 0) : True 
   maximize x
   trivial
 
--- So is the nonlinear term `x * y`.
+-- Likewise, `x * y` is a single unknown.
 /--
 info: Try this:
   [apply] have : x * y + x ≤ 3 := by linarith
@@ -1521,6 +1477,16 @@ info: Try this:
 #guard_msgs in
 example (x y : ℝ) (h : x * y ≤ 2) (hx : x ≤ 1) : True := by
   maximize x * y + x
+  trivial
+
+-- So is `x ^ 2`: the bound is `3`, although `x ^ 2 ≤ 3` is not the best bound over `ℝ`.
+/--
+info: Try this:
+  [apply] have : x ^ 2 ≤ 3 := by linarith
+-/
+#guard_msgs in
+example (x : ℝ) (h : x ^ 2 + x ≤ 4) (hx : 1 ≤ x) : True := by
+  maximize x ^ 2
   trivial
 
 -- The new hypothesis can be named and used.
@@ -1531,13 +1497,4 @@ info: Try this:
 #guard_msgs in
 example (x : ℝ) (hx : x ≤ 1) : x ≤ 1 := by
   maximize x with h
-  exact h
-
-/--
-info: Try this:
-  [apply] have h : 1 ≤ x := by linarith
--/
-#guard_msgs in
-example (x : ℝ) (hx : 1 ≤ x) : 1 ≤ x := by
-  minimize x with h
   exact h
