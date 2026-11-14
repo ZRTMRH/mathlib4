@@ -276,8 +276,8 @@ example (x y : ℝ) (h₁ : 3 * x + y < 4) (h₂ : x < 2) : True := by
 `e` must have type `K` for a linearly ordered field `K`, such as `ℚ` or `ℝ`. The bound is computed
 from the facts that `linarith` uses: the hypotheses comparing terms of type `K` with `=`, `≤`, `<`,
 `≥` or `>`, possibly negated or inside conjunctions, and the facts that `linarith` derives, such
-as `0 ≤ (n : K)` for casts of natural numbers. Hypotheses `a ≠ b` are not used, and
-neither are hypotheses in other types, such as `n ≤ 3` in `ℕ`. (With
+as `0 ≤ (n : K)` for casts of natural numbers. Hypotheses `a ≠ b` (or `¬ a = b`) are not used,
+and neither are hypotheses in other types, such as `n ≤ 3` in `ℕ`. (With
 `Mathlib.Tactic.Linarith.NNRealPreprocessor`, hypotheses in `ℝ≥0` are also used when `K` is `ℝ`.)
 
 Nonlinear terms are unknowns: after products are expanded and numeral denominators are cleared,
@@ -286,8 +286,8 @@ each of `x * y`, `x ^ 2`, `x / y` and `f x` is an independent variable. So from 
 Similarly, `(n : ℚ) ≤ 7 / 2` gives the bound `7 / 2`, not `3`.
 
 `maximize` fails with "The constraints may be inconsistent." if `linarith` can prove `False` from
-these facts or from hypotheses in other types (then every bound holds), and with "The expression
-may be unbounded." if the facts give no upper bound on `e`.
+these facts or from hypotheses in other types (then every bound holds), and otherwise with "The
+expression may be unbounded." if the facts give no upper bound on `e`.
 
 See also `minimize`.
 -/
@@ -310,8 +310,8 @@ example (x y : ℝ) (h₁ : -4 < 3 * x + y) (h₂ : -2 < x) : True := by
 ```
 
 `minimize` accepts the same expressions and uses the same facts as `maximize` (see its
-documentation). It fails in the same two cases: when `linarith` can prove `False`, or when the
-facts give no lower bound on `e`.
+documentation). It fails in the same two cases: when `linarith` can prove `False` from these facts
+or from hypotheses in other types, and otherwise when the facts give no lower bound on `e`.
 -/
 syntax (name := minimize) "minimize " term (" with " ident)? : tactic
 
