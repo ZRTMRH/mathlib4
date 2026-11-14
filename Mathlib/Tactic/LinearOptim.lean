@@ -260,130 +260,56 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
     Meta.Tactic.TryThis.addSuggestion (← getRef) suggestion
     evalTactic tac
 
-/-- The `maximize` tactic finds an upper bound for a linear expression given linear constraints.
-
-## Syntax
-
-```lean
-maximize <expression>
-maximize <expression> with <identifier>
-```
-
-The first form creates an anonymous hypothesis with the computed bound.
-The second form creates a hypothesis with the given identifier.
-
-## Description
-
-`maximize` uses the simplex algorithm to find an optimal upper bound for the given
-linear expression based on the linear constraints in the local context. It generates
-a `have` statement with the computed bound that is proved using `linarith`.
-
-The expression must take values in a linearly ordered field, such as `ℚ` or `ℝ`.
-
-## Examples
-
-### Success cases
+/--
+`maximize e` finds the best upper bound on the linear expression `e` that follows from the
+hypotheses. It suggests `have : e ≤ q := by linarith`, or `have : e < q := by linarith` when the
+bound is not reached, and adds that hypothesis to the context. `maximize e with h` names the new
+hypothesis `h`; otherwise it is called `this`.
 
 ```lean
-example (x y : ℚ) (h1 : 3 * x + y < 4) (h2 : x < 2) : True := by
-  maximize 4 * x + y with H
-  -- Creates: have H : 4 * x + y < 6 := by linarith
+example (x y : ℝ) (h₁ : 3 * x + y < 4) (h₂ : x < 2) : True := by
+  maximize 4 * x + y with h
+  -- Try this: have h : 4 * x + y < 6 := by linarith
   trivial
 ```
 
-```lean
-example (x : ℚ) (h : x < 10) : True := by
-  maximize x
-  -- Creates: have : x < 10 := by linarith
-  trivial
-```
+The expression must take values in a linearly ordered field, such as `ℚ` or `ℝ`. The bound is
+computed from the facts that `linarith` would use:
+* the comparisons in the local context between terms of the same type as `e`, after conjunctions
+  are split and negations are pushed (`¬ 1 < x` is used as `x ≤ 1`);
+* the facts `0 ≤ (n : K)` for the casts `(n : K)` of natural numbers.
 
-### Failure cases
+Only the linear structure is used. A term that is not a variable or a numeral, such as `Real.pi`,
+`f x` or `x * y`, is treated as one more unknown, unrelated to the variables it contains. So a cast
+`(n : ℚ)` is only known to be nonnegative: from `(n : ℚ) ≤ 7 / 2` the bound is `7 / 2`, not `3`.
+A hypothesis `n ≤ 3` in `ℕ` is not used for an expression in `ℚ`.
 
-**Unbounded expression:**
-```lean
-example (x : ℚ) (h : x > 0) : True := by
-  maximize x
-  -- Error: maximize: an upper bound cannot be produced for x.
-  --        The expression may be unbounded.
-```
+If no upper bound follows from the hypotheses, `maximize` fails, saying either that the expression
+may be unbounded or that the hypotheses may be inconsistent (in which case every bound holds).
 
-**Inconsistent constraints:**
-```lean
-example (x : ℚ) (h1 : x > 0) (h2 : x < -5) : True := by
-  maximize x
-  -- Error: maximize: an upper bound cannot be produced for x.
-  --        The constraints may be inconsistent.
-```
-
-## See also
-
-* `minimize` - finds a lower bound for a linear expression
+See also `minimize`.
 -/
 syntax (name := maximize) "maximize " term (" with " ident)? : tactic
 
 elab_rules : tactic
   | `(tactic| maximize $e $[with $h]?) => runLinearOptim true e h
 
-/-- The `minimize` tactic finds a lower bound for a linear expression given linear constraints.
-
-## Syntax
-
-```lean
-minimize <expression>
-minimize <expression> with <identifier>
-```
-
-The first form creates an anonymous hypothesis with the computed bound.
-The second form creates a hypothesis with the given identifier.
-
-## Description
-
-`minimize` uses the simplex algorithm to find an optimal lower bound for the given
-linear expression based on the linear constraints in the local context. It generates
-a `have` statement with the computed bound that is proved using `linarith`.
-
-The expression must take values in a linearly ordered field, such as `ℚ` or `ℝ`.
-
-## Examples
-
-### Success cases
+/--
+`minimize e` finds the best lower bound on the linear expression `e` that follows from the
+hypotheses. It suggests `have : q ≤ e := by linarith`, or `have : q < e := by linarith` when the
+bound is not reached, and adds that hypothesis to the context. `minimize e with h` names the new
+hypothesis `h`; otherwise it is called `this`.
 
 ```lean
-example (x y : ℚ) (h1 : 3 * x + y > -4) (h2 : x > -2) : True := by
-  minimize 4 * x + y with H
-  -- Creates: have H : -6 < 4 * x + y := by linarith
+example (x y : ℝ) (h₁ : -4 < 3 * x + y) (h₂ : -2 < x) : True := by
+  minimize 4 * x + y with h
+  -- Try this: have h : -6 < 4 * x + y := by linarith
   trivial
 ```
 
-```lean
-example (x : ℚ) (h : x > 5) : True := by
-  minimize x
-  -- Creates: have : 5 < x := by linarith
-  trivial
-```
-
-### Failure cases
-
-**Unbounded expression:**
-```lean
-example (x : ℚ) (h : x < 0) : True := by
-  minimize x
-  -- Error: minimize: a lower bound cannot be produced for x.
-  --        The expression may be unbounded.
-```
-
-**Inconsistent constraints:**
-```lean
-example (x : ℚ) (h1 : x < 0) (h2 : x > 5) : True := by
-  minimize x
-  -- Error: minimize: a lower bound cannot be produced for x.
-  --        The constraints may be inconsistent.
-```
-
-## See also
-
-* `maximize` - finds an upper bound for a linear expression
+`minimize` works like `maximize`, which explains which types and facts are used. If no lower bound
+follows from the hypotheses, it fails, saying either that the expression may be unbounded or that
+the hypotheses may be inconsistent.
 -/
 syntax (name := minimize) "minimize " term (" with " ident)? : tactic
 
