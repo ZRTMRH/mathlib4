@@ -1033,10 +1033,9 @@ example (a b c d : ℚ) (h1 : a < 5) (h2 : b < 4) (h3 : c < 3) (h4 : d < 2) : Tr
 
 /-! ### Explicit tests for strict vs non-strict inequality behavior
 
-These tests verify that maximize/minimize tactics:
-1. Prefer strict inequalities when all constraints are strict
-2. Fall back to non-strict inequalities when any constraint is non-strict
-3. Work correctly with the anonymous syntax (without 'with' clause)
+The bound is strict exactly when it is not reached, that is, when `linarith` proves the strict
+inequality. This can depend on which hypotheses are strict, but not only on that: with `x < 3`
+and `y ≤ 2`, the bound `x + 2 * y < 7` is strict.
 -/
 
 section StrictVsNonStrict
