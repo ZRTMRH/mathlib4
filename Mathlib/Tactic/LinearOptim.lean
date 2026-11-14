@@ -261,10 +261,10 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
     evalTactic tac
 
 /--
-`maximize e` finds the best upper bound `q` on `e` that `linarith` can prove
-from the hypotheses. It suggests `have : e ≤ q := by linarith`, or `have : e < q := by linarith`
-when `linarith` can prove the strict bound, and adds that hypothesis to the context.
-`maximize e with h` names the new hypothesis `h`; otherwise it is called `this`.
+`maximize e` finds the best upper bound `q` on `e` that `linarith` can prove from the hypotheses.
+It suggests `have : e ≤ q := by linarith`, or `have : e < q := by linarith` when `linarith` can
+prove the strict bound, and adds that hypothesis to the context. `maximize e with h` names the new
+hypothesis `h`; otherwise it is called `this`.
 
 ```lean
 example (x y : ℝ) (h₁ : 3 * x + y < 4) (h₂ : x < 2) : True := by
@@ -304,10 +304,10 @@ elab_rules : tactic
   | `(tactic| maximize $e $[with $h]?) => runLinearOptim true e h
 
 /--
-`minimize e` finds the best lower bound `q` on `e` that `linarith` can prove
-from the hypotheses. It suggests `have : q ≤ e := by linarith`, or `have : q < e := by linarith`
-when `linarith` can prove the strict bound, and adds that hypothesis to the context.
-`minimize e with h` names the new hypothesis `h`; otherwise it is called `this`.
+`minimize e` finds the best lower bound `q` on `e` that `linarith` can prove from the hypotheses.
+It suggests `have : q ≤ e := by linarith`, or `have : q < e := by linarith` when `linarith` can
+prove the strict bound, and adds that hypothesis to the context. `minimize e with h` names the new
+hypothesis `h`; otherwise it is called `this`.
 
 ```lean
 example (x y : ℝ) (h₁ : -4 < 3 * x + y) (h₂ : -2 < x) : True := by
