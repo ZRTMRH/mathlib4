@@ -261,7 +261,7 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
     evalTactic tac
 
 /--
-`maximize e` finds the best upper bound `q` on the linear expression `e` that `linarith` can prove
+`maximize e` finds the best upper bound `q` on `e` that `linarith` can prove
 from the hypotheses. It suggests `have : e ≤ q := by linarith`, or `have : e < q := by linarith`
 when `linarith` can prove the strict bound, and adds that hypothesis to the context.
 `maximize e with h` names the new hypothesis `h`; otherwise it is called `this`.
@@ -273,25 +273,28 @@ example (x y : ℝ) (h₁ : 3 * x + y < 4) (h₂ : x < 2) : True := by
   trivial
 ```
 
-The expression must take values in a linearly ordered field `K`, such as `ℚ` or `ℝ`. The bound is
+The expression must have values in a linearly ordered field `K`, such as `ℚ` or `ℝ`. The bound is
 computed from the facts that `linarith` uses:
-* the hypotheses `a = b`, `a ≤ b` and `a < b` (or `a ≥ b`, `a > b`) between terms in `K`, after
-  conjunctions are split and negations are pushed (`¬ 1 < x` is used as `x ≤ 1`). Hypotheses
-  `a ≠ b` are not used, and neither are hypotheses in other types: `n ≤ 3` in `ℕ` is not used for
-  an expression in `ℚ`. With `Mathlib.Tactic.Linarith.NNRealPreprocessor`, hypotheses in `ℝ≥0`
-  are also used for an expression in `ℝ`;
-* the facts `0 ≤ (n : K)` for the casts of natural numbers that occur in these hypotheses and
-  in `e`.
+* the hypotheses `a = b`, `a ≤ b`, `a < b`, `a ≥ b` and `a > b` between terms of type `K`, after
+  conjunctions are split and negated inequalities are flipped (`¬ 1 < x` is used as `x ≤ 1`).
+  Hypotheses `a ≠ b` are not used, and neither are hypotheses in other types: `n ≤ 3` in `ℕ` does
+  not bound `(n : ℚ)`;
+* the facts `0 ≤ (n : K)` for the casts of natural numbers that occur in these hypotheses and in
+  `e`, except inside a division: `(n : ℚ) / 2` alone does not give `0 ≤ (n : ℚ)`;
+* if `Mathlib.Tactic.Linarith.NNRealPreprocessor` is imported (as by `import Mathlib`) and `K` is
+  `ℝ`, the hypotheses in `ℝ≥0`, read in `ℝ`, and the facts `0 ≤ (x : ℝ)` for the casts of
+  `x : ℝ≥0`.
 
-Only the linear structure is used. Products are multiplied out, and each nonlinear product, such
-as `x * y` or `x ^ 2`, and each term that is not built from variables and numerals with `+`, `-`,
-`*` and division by numerals, such as `Real.pi`, `f x` or `x / y`, is treated as one more unknown,
-unrelated to the variables it contains. So a cast `(n : ℚ)` is only known to be nonnegative: from
-`(n : ℚ) ≤ 7 / 2` the bound is `7 / 2`, not `3`.
+Only the linear structure is used. Products and powers by numerals are multiplied out and divisions
+by numerals are cleared. What remains are atoms, such as `x`, `Real.pi`, `f x`, `(n : ℚ)` or
+`x / y`, and products of atoms, such as `x * y` or `x ^ 2`. Each atom and each such product is one
+more unknown, unrelated to the terms it contains. So from `x * y ≤ 2` and `y ≤ 3` the bound on
+`(x + 1) * y` is `5`, but `-3 ≤ x ≤ 3` gives no bound on `x ^ 2`; and a cast `(n : ℚ)` is not known
+to be an integer: from `(n : ℚ) ≤ 7 / 2` the bound is `7 / 2`, not `3`.
 
-`maximize` fails with "The constraints may be inconsistent." if `linarith` finds the hypotheses
-contradictory (then every bound holds), and with "The expression may be unbounded." if they give
-no upper bound on `e`.
+`maximize` fails with "The constraints may be inconsistent." if `linarith` can prove `False` from
+the hypotheses (hypotheses in every type count here), since then every bound holds, and with
+"The expression may be unbounded." if the facts above give no upper bound on `e`.
 
 See also `minimize`.
 -/
@@ -301,7 +304,7 @@ elab_rules : tactic
   | `(tactic| maximize $e $[with $h]?) => runLinearOptim true e h
 
 /--
-`minimize e` finds the best lower bound `q` on the linear expression `e` that `linarith` can prove
+`minimize e` finds the best lower bound `q` on `e` that `linarith` can prove
 from the hypotheses. It suggests `have : q ≤ e := by linarith`, or `have : q < e := by linarith`
 when `linarith` can prove the strict bound, and adds that hypothesis to the context.
 `minimize e with h` names the new hypothesis `h`; otherwise it is called `this`.
@@ -313,8 +316,9 @@ example (x y : ℝ) (h₁ : -4 < 3 * x + y) (h₂ : -2 < x) : True := by
   trivial
 ```
 
-`minimize` uses the same expressions and hypotheses as `maximize` (see its documentation), and
-fails in the same cases.
+`minimize` accepts the same expressions and uses the same facts as `maximize` (see its
+documentation). It fails with the same two messages: when `linarith` finds the hypotheses
+contradictory, or when the facts give no lower bound on `e`.
 -/
 syntax (name := minimize) "minimize " term (" with " ident)? : tactic
 
