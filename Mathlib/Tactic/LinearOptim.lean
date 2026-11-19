@@ -261,33 +261,25 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
     evalTactic tac
 
 /--
-`maximize e` finds the best upper bound `q` on `e` that `linarith` can prove from the hypotheses.
-It suggests `have : e ≤ q := by linarith`, or `have : e < q := by linarith` when `linarith` can
-prove the strict bound, and adds that hypothesis to the context. `maximize e with h` names the new
-hypothesis `h`; otherwise it is called `this`.
+`maximize e` finds the least upper bound `q` for `e` given the linear constraints produced by
+`linarith` preprocessing. It adds `this : e ≤ q`, using `e < q` if `linarith` can prove the strict
+bound, and suggests the corresponding `have ... := by linarith`. Use `maximize e with h` to name
+the hypothesis `h`.
 
 ```lean
-example (x y : ℝ) (h₁ : 3 * x + y < 4) (h₂ : x < 2) : True := by
+example (x y : ℚ) (h₁ : 3 * x + y < 4) (h₂ : x < 2) : 4 * x + y < 6 := by
   maximize 4 * x + y with h
-  -- Try this: have h : 4 * x + y < 6 := by linarith
-  trivial
+  exact h
 ```
 
-`e` must have type `K` for a linearly ordered field `K`, such as `ℚ` or `ℝ`. The bound is computed
-from the facts that `linarith` uses: the hypotheses comparing terms of type `K` with `=`, `≤`, `<`,
-`≥` or `>`, possibly negated or inside conjunctions, and the facts that `linarith` derives, such
-as `0 ≤ (n : K)` for casts of natural numbers. Hypotheses `a ≠ b` (or `¬ a = b`) are not used,
-and neither are hypotheses in other types, such as `n ≤ 3` in `ℕ`. (With
-`Mathlib.Tactic.Linarith.NNRealPreprocessor`, hypotheses in `ℝ≥0` are also used when `K` is `ℝ`.)
-
-Nonlinear terms are unknowns: after products are expanded and numeral denominators are cleared,
-each of `x * y`, `x ^ 2`, `x / y` and `f x` is an independent variable. So from `x * y ≤ 2` and
-`y ≤ 3` the bound on `(x + 1) * y` is `5`, but `-3 ≤ x` and `x ≤ 3` give no bound on `x ^ 2`.
-Similarly, `(n : ℚ) ≤ 7 / 2` gives the bound `7 / 2`, not `3`.
+The expression must take values in a linearly ordered field such as `ℚ` or `ℝ`. After expansion,
+`linarith` treats nonlinear terms such as `x ^ 2` as independent variables, so bounds on `x` alone
+give no bound on `x ^ 2`. A bound stated in `ℕ` also gives no constraint on an expression in `ℚ`,
+though `linarith` can use the nonnegativity of a natural number cast to `ℚ`.
 
 `maximize` fails with "The constraints may be inconsistent." if `linarith` can prove `False` from
-these facts or from hypotheses in other types (then every bound holds), and otherwise with "The
-expression may be unbounded." if the facts give no upper bound on `e`.
+the linear constraints or from hypotheses in other types (then every bound holds), and otherwise
+with "The expression may be unbounded." if the linear constraints give no upper bound on `e`.
 
 See also `minimize`.
 -/
@@ -297,21 +289,18 @@ elab_rules : tactic
   | `(tactic| maximize $e $[with $h]?) => runLinearOptim true e h
 
 /--
-`minimize e` finds the best lower bound `q` on `e` that `linarith` can prove from the hypotheses.
-It suggests `have : q ≤ e := by linarith`, or `have : q < e := by linarith` when `linarith` can
-prove the strict bound, and adds that hypothesis to the context. `minimize e with h` names the new
-hypothesis `h`; otherwise it is called `this`.
+`minimize e` finds the greatest lower bound `q` for `e` using the same linear constraints as
+`maximize`. It adds `this : q ≤ e`, using `q < e` if `linarith` can prove the strict bound, and
+suggests the corresponding `have ... := by linarith`. Use `minimize e with h` to name the
+hypothesis `h`.
 
 ```lean
-example (x y : ℝ) (h₁ : -4 < 3 * x + y) (h₂ : -2 < x) : True := by
-  minimize 4 * x + y with h
-  -- Try this: have h : -6 < 4 * x + y := by linarith
-  trivial
+example (x y : ℚ) (h₁ : 4 ≤ 3 * x + y) (h₂ : 2 ≤ x) : 6 ≤ 4 * x + y := by
+  minimize 4 * x + y
+  exact this
 ```
 
-`minimize` accepts the same expressions and uses the same facts as `maximize` (see its
-documentation). It fails in the same two cases: when `linarith` can prove `False` from these facts
-or from hypotheses in other types, and otherwise when the facts give no lower bound on `e`.
+See `maximize` for supported expressions and failure messages.
 -/
 syntax (name := minimize) "minimize " term (" with " ident)? : tactic
 
