@@ -82,7 +82,21 @@ example (x y : ℚ) (h1 : x + y < 10) (h2 : y > 4) : True := by
   maximize x / 2 + 1 with H
   trivial
 
-/-! ### Strict and attained bounds -/
+/-! ### Strict and attained bounds
+
+The bound is strict exactly when `linarith` proves the strict inequality, that is, when the bound
+is not reached in the linear problem. A strict hypothesis alone does not make it strict: with
+`0 < x` and `x ≤ 10`, the bound `x ≤ 10` is reached at `x = 10`.
+-/
+
+/--
+info: Try this:
+  [apply] have H : x ≤ 10 := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (h1 : 0 < x) (h2 : x ≤ 10) : True := by
+  maximize x with H
+  trivial
 
 /--
 info: Try this:
@@ -120,7 +134,7 @@ example (x y : ℚ) (h1 : x ≥ -3) (h2 : y ≥ 1) : True := by
   minimize x + 2 * y with H
   trivial
 
-/-! ### Unbounded and inconsistent constraints -/
+/-! ### Unbounded expressions and inconsistent hypotheses -/
 
 /-- error: minimize: a lower bound cannot be produced for x.
     The expression may be unbounded. -/
@@ -139,39 +153,55 @@ example (x y : ℚ) (h1 : 3 * x + y ≤ 7) (h2 : x < 6) : True := by
 /-- error: maximize: an upper bound cannot be produced for x.
     The constraints may be inconsistent. -/
 #guard_msgs in
-example (x : ℚ) (h2 : x > 0) (h1 : x < -5):  True := by
+example (x : ℚ) (h2 : x > 0) (h1 : x < -5) : True := by
   maximize x with H
+  trivial
+
+/-- error: minimize: a lower bound cannot be produced for x.
+    The constraints may be inconsistent. -/
+#guard_msgs in
+example (x : ℚ) (h2 : x < 0) (h1 : x > 5) : True := by
+  minimize x with H
   trivial
 
 /-- error: maximize: an upper bound cannot be produced for y.
     The constraints may be inconsistent. -/
 #guard_msgs in
-example (x y : ℚ) (h2 : x < 0) (h1 : x > 7):  True := by
+example (x y : ℚ) (h2 : x < 0) (h1 : x > 7) : True := by
   maximize y with H
   trivial
 
 /-- error: maximize: an upper bound cannot be produced for -y.
     The constraints may be inconsistent. -/
 #guard_msgs in
-example (x y : ℚ) (h2 : x < 0) (h1 : x > 7):  True := by
+example (x y : ℚ) (h2 : x < 0) (h1 : x > 7) : True := by
   maximize -y with H
   trivial
 
 /-- error: maximize: an upper bound cannot be produced for x.
     The constraints may be inconsistent. -/
 #guard_msgs in
-example (x y : ℚ) (h2 : y < 0) (h1 : y > 7):  True := by
+example (x y : ℚ) (h2 : y < 0) (h1 : y > 7) : True := by
   maximize x with H
   trivial
 
 /-- error: maximize: an upper bound cannot be produced for x + y.
     The constraints may be inconsistent. -/
 #guard_msgs in
-example (x y : ℚ) (h1 : x > 0) (h2 : y <= 5) (h3: y > 9):  True := by
+example (x y : ℚ) (h1 : x > 0) (h2 : y <= 5) (h3 : y > 9) : True := by
   maximize x + y
   trivial
 
-/-! ### Naming and reusing bounds -/
+/-! ### Naming the new hypothesis -/
+
+/--
+info: Try this:
+  [apply] have : 5 < x := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (h : x > 5) : True := by
+  minimize x
+  trivial
 
 /--
 info: Try this:
@@ -204,12 +234,11 @@ info: Try this:
 example (x y : ℚ) (h1 : x < 8) (h2 : y > 3) (h3 : x > 2) : True := by
   maximize x                      -- anonymous
   minimize y with min_y           -- named
-  minimize x + y with min_sum     -- named (now has proper lower bound)
+  minimize x + y with min_sum     -- named
   trivial
 
-/-! ### Supported coefficient types -/
+/-! ### The type of the expression -/
 
--- Tests with different types similar to linarith (any linearly ordered field)
 /--
 info: Try this:
   [apply] have H : x + y < 5 := by linarith

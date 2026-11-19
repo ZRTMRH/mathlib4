@@ -277,7 +277,10 @@ The expression must take values in a linearly ordered field such as `ℚ` or `�
 give no bound on `x ^ 2`. A bound stated in `ℕ` also gives no constraint on an expression in `ℚ`,
 though `linarith` can use the nonnegativity of a natural number cast to `ℚ`.
 
-The tactic reports when the expression may be unbounded or the hypotheses may be inconsistent.
+`maximize` fails with "The constraints may be inconsistent." if `linarith` can prove `False` from
+the linear constraints or from hypotheses in other types (then every bound holds), and otherwise
+with "The expression may be unbounded." if the linear constraints give no upper bound on `e`.
+
 See also `minimize`.
 -/
 syntax (name := maximize) "maximize " term (" with " ident)? : tactic
