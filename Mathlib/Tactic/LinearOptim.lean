@@ -49,12 +49,13 @@ namespace Mathlib.Tactic.LinearOptim
 
 section Preprocessing
 
-/-- Turns the hypotheses in the local context, together with a dummy hypothesis `H`, into the
+/-- Turns the hypotheses in the local context, which contains a dummy hypothesis `H`, into the
 linear comparisons that `linarith` would use.
 
-The caller creates the dummy hypothesis `H : e < z`, where `z` is a fresh variable, to capture how
-the expression `e` is transformed. Preprocessing turns it into `e - z < 0`, which `cancelDenoms`
-may scale to `k*e - k*z < 0`; the coefficient `-k` of `z` gives the scaling factor `k`.
+The caller adds the dummy hypothesis `H : e < z`, where `z` is a fresh variable, to the context
+to capture how the expression `e` is transformed. Preprocessing turns it into `e - z < 0`, which
+`cancelDenoms` may scale to `k*e - k*z < 0`; the coefficient `-k` of `z` gives the scaling factor
+`k`.
 
 The comparison coming from `H` is the only one that mentions `z`, so `z` is a variable that occurs
 in it and in no other comparison. Any other such variable is a part of `e` that no hypothesis
@@ -67,9 +68,8 @@ Otherwise it returns `some (comps, maxVar, goalScalingFactor) : List Comp × ℕ
   the one coming from `H`
 - `maxVar` is the maximum variable index (after removing the dummy variable)
 - `goalScalingFactor` is the extracted scaling factor `k` -/
-def parseLinarithStructure (ty H : Expr) (z : FVarId) :
-    MetaM (Option (List Comp × ℕ × ℤ)) := do
-  let hyps := H :: (← getLocalHyps).toList
+def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option (List Comp × ℕ × ℤ)) := do
+  let hyps := (← getLocalHyps).toList
   -- Preprocess as `linarith` does in its default configuration (see `Linarith.runLinarith`), so
   -- that the bound is computed from the same facts that `linarith` later uses to prove it. In
   -- particular, this adds the facts `0 ≤ (n : K)` for the casts of natural numbers. The
@@ -191,9 +191,8 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
     return .error (if ← hypothesesInconsistent g e_exp then .inconsistent else .unbounded)
   -- The dummy hypothesis is always `< z` (for a new dummy variable `z`) to ensure the scaling
   -- factor `k` is positive and that the Comp object represents `k*E`.
-  withLocalDecl .anonymous .default ty fun (z : Q($ty)) ↦ do
-  let H := q(show $target_exp < $z from sorry)
-  let some (comps, maxVar, scalingFactor) ← parseLinarithStructure ty H z.fvarId!
+  withLocalDeclDQ `z ty fun z ↦ withLocalDeclDQ `H q($target_exp < $z) fun _ ↦ do
+  let some (comps, maxVar, scalingFactor) ← parseLinarithStructure ty z.fvarId!
     | unboundedOrInconsistent
   let rH :: rr := comps.reverse | failure
   let A := preprocessLinearOptim DenseMatrix rH rr maxVar
