@@ -10,33 +10,29 @@ public import Mathlib.Tactic.Linarith
 public import Mathlib.Tactic.Linarith.Oracle.SimplexAlgorithm.Optimize
 
 /-!
-# Linear Optimization Tactics
+# The `maximize` and `minimize` tactics
 
-This file implements `maximize` and `minimize` tactics that find upper and lower
-bounds for linear expressions given linear constraints using the simplex algorithm.
-The tactics accept expressions in linearly ordered fields only. The bounds are optimal with respect
-to the facts that `linarith` uses: the hypotheses after `linarith`'s preprocessing, in which
-nonlinear terms such as `x * y` are treated as atoms.
+`maximize e` finds the least upper bound on a linear expression `e` that follows from the
+hypotheses as `linarith` sees them: after `linarith`'s preprocessing, with nonlinear terms such as
+`x * y` treated as atoms. It suggests `have : e ≤ q := by linarith`, or `e < q` when the strict
+bound holds, and adds that hypothesis. `minimize e` does the same for lower bounds. The expression
+must take values in a linearly ordered field, such as `ℚ` or `ℝ`.
 
 ## Main declarations
 
-* `maximize` - Finds an upper bound for a linear expression
-* `minimize` - Finds a lower bound for a linear expression
-* `parseLinarithStructure` - Turns the hypotheses into the comparisons that `linarith` uses
-* `Problem.toMatrix` - Converts constraints to matrix for simplex
-* `computeOptimalBound` - Core function computing optimal bounds
+* `maximize`, `minimize`: the tactics.
+* `Problem`, `parseLinarithStructure`: the linear problem, read off from the hypotheses as
+  `linarith` preprocesses them.
+* `computeOptimalBound`: the optimal bound, computed with `simplexOptimalBound`.
 
-## Implementation
+## Implementation notes
 
-The `maximize` and `minimize` tactics work by:
-1. Parsing the linear constraints and target expression using `parseLinarithStructure`
-2. Converting them to matrix form suitable for the simplex algorithm via `Problem.toMatrix`
-3. Finding the optimal solution using `computeOptimalBound` which calls `simplexOptimalBound`
-4. Suggesting a `have` statement with the computed bound that can be proved with `linarith`
-
-The tactics handle the duality between maximization and minimization by transforming
-`minimize e` into `maximize -e` and then negating the result. The implementation uses
-a dummy variable trick to extract scaling factors introduced by the preprocessing pipeline.
+The preprocessing of `linarith` may scale the expression, for instance to clear denominators. To
+see how, a dummy hypothesis `e < z`, with `z` a fresh variable, is preprocessed together with the
+other hypotheses (`parseLinarithStructure`). The bound is the optimal value of the dual linear
+program, which `simplexOptimalBound` solves; for `minimize e`, it is `-max (-e)`. Finally,
+`linarith` decides whether the strict bound holds, and whether the hypotheses are inconsistent, in
+which case the tactic fails.
 -/
 
 public meta section
@@ -54,7 +50,8 @@ constant term. -/
 structure Problem where
   /-- The comparison `-1 < 0`, which `linarith` adds to the hypotheses. -/
   negOne : Comp
-  /-- The other comparisons coming from the hypotheses, in the order of the hypotheses. -/
+  /-- The other comparisons: the facts that `linarith`'s preprocessing gives, other than the dummy
+  hypothesis, in their order, each equality `t = 0` followed by `-t = 0`. -/
   hyps : List Comp
   /-- The comparison `k * e < 0` coming from the dummy hypothesis `e < z`, with `z` removed. -/
   objective : Comp
@@ -63,7 +60,7 @@ structure Problem where
   /-- The positive factor `k` by which `linarith`'s preprocessing scales `e`. -/
   scale : ℕ
 
-/-- Turns the hypotheses in the local context, which contains a dummy hypothesis `H`, into the
+/-- Turns the hypotheses in the local context, which must contain a dummy hypothesis `H`, into the
 linear comparisons that `linarith` would use.
 
 The caller adds the dummy hypothesis `H : e < z`, where `z` is a fresh variable, to the context
@@ -73,16 +70,18 @@ to capture how the expression `e` is transformed. Preprocessing turns it into `e
 
 The comparison coming from `H` is the only one that mentions `z`, so `z` is a variable that occurs
 in it and in no other comparison. Any other such variable is a part of `e` that no hypothesis
-constrains, so no bound on `e` follows from the hypotheses (in which nonlinear terms such as
-`x * y` are atoms): either `e` is unbounded or the hypotheses are inconsistent. In that case this
-function returns `none`, and the caller tells the two apart. Otherwise it returns the problem,
+constrains (nonlinear terms such as `x * y` being atoms), so the hypotheses give no bound on `e`
+unless they are inconsistent. In that case this function returns `none`, and the caller tells the
+two cases apart. Otherwise it returns the problem,
 with `z` removed from the comparisons. -/
 def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option Problem) := do
   let hyps := (← getLocalHyps).toList
   -- Preprocess as `linarith` does in its default configuration (see `Linarith.runLinarith`), so
   -- that the bound is computed from the same facts that `linarith` later uses to prove it. In
-  -- particular, this adds the facts `0 ≤ (n : K)` for the casts of natural numbers. The
-  -- preprocessors need a goal, and it has to live in the current context, which contains `z`.
+  -- particular, this adds the facts `0 ≤ (n : K)` for the casts of natural numbers. The list of
+  -- preprocessors is built from the default configuration as in `Linarith.runLinarith`. The
+  -- preprocessors need a goal, and it has to live in the current context, which contains `z`
+  -- and `H`.
   let cfg : LinarithConfig := {}
   let pps :=
     (if cfg.splitHypotheses then [Linarith.splitConjunctions.globalize.branching] else []) ++
@@ -94,11 +93,11 @@ def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option Problem) := 
   -- metavariable, e.g. after `refine fun x => ?_`.
   let hypSet ← es.filterM fun h => do isDefEq ty (← typeOfIneqProof h)
   -- The linear forms, as `Linarith.proveFalseByLinarith` computes them: the comparison `-1 < 0`
-  -- first, then the hypotheses in reverse order, each equality followed by its negation and each
-  -- tagged with the index of its hypothesis in `hypSet`.
-  let h :: _ := hypSet | throwError "linear optimization: internal error: no hypotheses"
+  -- first, then the hypotheses in reverse order, with the negation of each equality next to it,
+  -- each tagged with the index of its hypothesis in `hypSet`.
+  let first :: _ := hypSet | throwError "linear optimization: internal error: no hypotheses"
   let tagged := (← addNegEqProofsIdx hypSet.zipIdx).reverse
-  let negOneLtZero ← mkNegOneLtZeroProof (← typeOfIneqProof h)
+  let negOneLtZero ← mkNegOneLtZeroProof (← typeOfIneqProof first)
   let (comps, maxVar) ← linearFormsAndMaxVar cfg.transparency (negOneLtZero :: tagged.map (·.1))
   let negOne :: comps := comps
     | throwError "linear optimization: internal error: no linear forms"
@@ -132,7 +131,6 @@ def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option Problem) := 
 
 end Preprocessing
 
-
 section MatrixPreprocessing
 
 /-- The matrix of `p` for `simplexOptimalBound`. Row `i` holds the coefficients of variable `i`;
@@ -145,7 +143,6 @@ def Problem.toMatrix (matType : ℕ → ℕ → Type) [UsableInSimplexAlgorithm 
   ofValues <| column 0 1 p.negOne ++ (p.hyps.zipIdx.flatMap fun (c, j) => column (j + 1) 1 c) ++
     column (p.hyps.length + 1) (-1) p.objective
 
-
 end MatrixPreprocessing
 
 section BoundComputation
@@ -154,7 +151,7 @@ section BoundComputation
 inductive NoBound
   /-- The hypotheses are inconsistent, so that every bound holds. -/
   | inconsistent : NoBound
-  /-- No bound follows from the hypotheses. -/
+  /-- No bound follows from the facts that `linarith` uses, which are consistent. -/
   | unbounded : NoBound
 
 /-- Whether `linarith` can prove `False` from the hypotheses in the context of `g`, together with
@@ -164,65 +161,43 @@ def hypothesesInconsistent (g : MVarId) (e : Expr) : MetaM Bool := g.withContext
   let goal ← mkFreshExprMVar (mkConst ``False)
   succeeds <| Linarith.linarith false [← mkEqRefl e] {} goal.mvarId!
 
-/-- Compute the optimal bound (upper bound for maximization, lower bound for minimization).
+/-- The optimal bound on `e`, or why there is none: the maximum of `e` if `isMaximize`, and
+otherwise its minimum, computed as `-max (-e)`. Throws an error if `e` does not take values in a
+linearly ordered field.
 
-This function implements the core optimization logic, using the duality principle:
-- For maximization: directly find max(e) using the simplex algorithm
-- For minimization: find min(e) by computing max(-e) and negating the result
-
-The function creates a dummy variable `z` and hypothesis `target < z` to capture
-scaling factors from preprocessing. After running the simplex algorithm, it adjusts
-the result by the scaling factor to get the actual bound.
-
-The duality transformation `min(e) = -max(-e)` allows us to handle both maximize
-and minimize with a single simplex implementation.
-
-Returns the optimal bound as a rational number, or an error if the problem is
-unbounded or infeasible. -/
-def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
-    MetaM (Except NoBound Rat) := g.withContext do
-  let ⟨u, ty, e_exp⟩ ← inferTypeQ' e_exp
+Write `t` for `e` or `-e`. The comparisons of `parseLinarithStructure` are `Lⱼ R 0`, with `R` one
+of `<`, `≤` and `=`, and `k * t` for the objective. A solution of the linear program of
+`Problem.toMatrix` gives multipliers `yⱼ ≥ 0` and a number `y` with `∑ⱼ yⱼ * Lⱼ = k * t + y`, so
+that `k * t ≤ -y` (strict hypotheses are treated as non-strict here). The simplex algorithm
+maximizes `y`, and the bound on `t` is `-max y / k`. -/
+def computeOptimalBound (e : Expr) (isMaximize : Bool) (g : MVarId) :
+    MetaM (Except NoBound ℚ) := g.withContext do
+  let ⟨u, ty, e⟩ ← inferTypeQ' e
   -- The bound is the optimum of a linear program over `ℚ`, which is the optimum over `ty` only
   -- when `ty` is a linearly ordered field: over `ℤ`, for instance, it need not be an integer.
   let notField := m!"{if isMaximize then "maximize" else "minimize"} only works over linearly \
-    ordered fields, such as ℚ and ℝ, but {e_exp} has type {ty}."
-  let _i ← try synthInstanceQ q(Field $ty) catch _ => throwError notField
-  let _i ← try synthInstanceQ q(LinearOrder $ty) catch _ => throwError notField
-  let _i ← try synthInstanceQ q(IsStrictOrderedRing $ty) catch _ => throwError notField
-  assumeInstancesCommute
-  -- To find max(e), we run the pipeline on `e`.
-  -- To find min(e), we run the pipeline on `-e` and use the identity min(e) = -max(-e).
-  let target_exp := if isMaximize then e_exp else q(-$e_exp)
-  -- No bound follows from the hypotheses: either the expression is unbounded or the hypotheses are
-  -- inconsistent. Tell the two apart with `linarith`.
-  let unboundedOrInconsistent : MetaM (Except NoBound Rat) := do
-    return .error (if ← hypothesesInconsistent g e_exp then .inconsistent else .unbounded)
-  -- The dummy hypothesis is always `< z` (for a new dummy variable `z`) to ensure the scaling
-  -- factor `k` is positive and that the Comp object represents `k*E`.
-  withLocalDeclDQ `z ty fun z ↦ withLocalDeclDQ `H q($target_exp < $z) fun _ ↦ do
+    ordered fields, such as ℚ and ℝ, but {e} has type {ty}."
+  let some _ ← synthInstanceQ? q(Field $ty) | throwError notField
+  let some _ ← synthInstanceQ? q(LinearOrder $ty) | throwError notField
+  let some _ ← synthInstanceQ? q(IsStrictOrderedRing $ty) | throwError notField
+  let target := if isMaximize then e else q(-$e)
+  -- The hypotheses give no bound on `t` unless they are inconsistent: tell the two cases apart
+  -- with `linarith`.
+  let unboundedOrInconsistent : MetaM (Except NoBound ℚ) := do
+    return .error (if ← hypothesesInconsistent g e then .inconsistent else .unbounded)
+  withLocalDeclDQ `z ty fun z ↦ withLocalDeclDQ `H q($target < $z) fun _ ↦ do
   let some p ← parseLinarithStructure ty z.fvarId! | unboundedOrInconsistent
   match ← simplexOptimalBound (p.toMatrix DenseMatrix) with
-  | .ok r_opt =>
-    let k_q : ℚ := p.scale
-    -- This derivation is based on the solver pipeline.
-    -- The pipeline takes a Comp for `k*E` and returns `r_opt = min(-(k*E))`.
-    -- This can be solved to show that `max(E) = (- r_opt) / k`.
-    let max_of_target := (- r_opt) / k_q
-    if isMaximize then
-      -- The target was `e`, so we have found `max(e)`.
-      return Except.ok max_of_target
-    else
-      -- The target was `-e`. We found `max(-e)`.
-      -- So we return `-max(-e)` to get `min(e)`.
-      return Except.ok (-max_of_target)
-  -- The program is the dual of the problem of bounding `e`: when it is infeasible, no bound on `e`
-  -- follows from the hypotheses, and when it is unbounded, the hypotheses are inconsistent.
-  | .error .infeasible => unboundedOrInconsistent
-  | .error .unbounded => return .error .inconsistent
-
+  | .ok y =>
+    let maxTarget := -y / p.scale
+    return .ok (if isMaximize then maxTarget else -maxTarget)
+  -- When the program is infeasible, the (non-strict versions of the) hypotheses give no bound on
+  -- `t`, unless they are inconsistent. When it is unbounded, some `∑ⱼ yⱼ * Lⱼ` is a positive
+  -- constant, so the hypotheses are inconsistent.
+  | .error NoOptimum.infeasible => unboundedOrInconsistent
+  | .error NoOptimum.unbounded => return .error NoBound.inconsistent
 
 end BoundComputation
-
 
 section TacticImplementation
 
@@ -283,7 +258,7 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
 `maximize e` finds the least upper bound `q` for `e` given the linear constraints produced by
 `linarith` preprocessing. It adds `this : e ≤ q`, using `e < q` if `linarith` can prove the strict
 bound, and suggests the corresponding `have ... := by linarith`. Use `maximize e with h` to name
-the hypothesis `h`.
+the hypothesis `h`. Only the hypotheses are used, not the goal.
 
 ```lean
 example (x y : ℚ) (h₁ : 3 * x + y < 4) (h₂ : x < 2) : 4 * x + y < 6 := by

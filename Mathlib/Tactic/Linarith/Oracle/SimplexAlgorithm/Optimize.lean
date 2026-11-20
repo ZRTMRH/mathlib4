@@ -45,22 +45,27 @@ inductive NoOptimum
 variable {matType : Nat → Nat → Type} [UsableInSimplexAlgorithm matType]
 
 /--
-Maximizes the variable in row `objRow` of the tableau, keeping the variables in rows
-`firstRow, firstRow + 1, ...` nonnegative; rows before `firstRow` are not sign-constrained.
-The tableau must be feasible on entry. Pivots by Bland's rule: the entering variable is the one
-with smallest index among those that increase the objective, and ties in the ratio test are broken
-by smallest index.
+Maximizes the basic variable of row `0` of the tableau, keeping the basic variables of rows
+`firstRow, firstRow + 1, …` nonnegative, where `0 < firstRow`; the basic variables of the rows
+before `firstRow` are not constrained in sign. The last free variable is the constant `1`, and the
+other free variables are `0` and must be nonnegative. On entry, the basic solution must be
+feasible: the values of rows `firstRow, …` in the last column must be nonnegative.
+
+Pivots by Bland's rule: the entering variable is the one with smallest index among those that
+increase the objective, and ties in the ratio test are broken by smallest index. This is the rule of
+`SimplexAlgorithm.choosePivots`, which however looks for a feasible solution of a problem known to
+be bounded, with only row `0` unconstrained, and so cannot report an unbounded objective.
 
 Returns `true` when an optimum is reached and `false` when the objective is unbounded.
 -/
-def runOptimLoop (objRow firstRow : Nat) : SimplexAlgorithmM matType Bool := do
+def runOptimLoop (firstRow : Nat) : SimplexAlgorithmM matType Bool := do
   repeat
     Lean.Core.checkSystem decl_name%.toString
     let t ← get
     let lastIdx := t.free.size - 1
     let mut enterIdx? : Option Nat := none
     for j in [:lastIdx] do
-      if t.mat[(objRow, j)]! > 0 && enterIdx?.all (t.free[j]! < t.free[·]!) then
+      if t.mat[(0, j)]! > 0 && enterIdx?.all (t.free[j]! < t.free[·]!) then
         enterIdx? := some j
     let some enterIdx := enterIdx? | return true
     let mut exitIdx? : Option Nat := none
@@ -102,19 +107,19 @@ def phase1Tableau (t : Tableau matType) (phase1Var artVar : Nat) : Tableau matTy
 
 /--
 Given a phase 1 tableau whose objective (row `0`) has reached `0`, removes the phase 1 objective
-row and the artificial variable `artVar`. If `artVar` is still basic its value is `0`, so it can be
-pivoted out against any free variable with nonzero coefficient without changing the basic solution.
-Such a variable exists because `artVar` started out free; dropping the row is only a fallback.
+row and the artificial variable `artVar`. If `artVar` is still basic, its value is `0`, so it is
+pivoted out against a free variable with nonzero coefficient in its row, which does not change the
+basic solution. Such a variable exists other than the constant: at the start of phase 1, `artVar`
+and the constant were both free, so the equations, which pivoting does not change, do not
+determine `artVar` from the constant.
 -/
 def removeArtificial (artVar : Nat) : SimplexAlgorithmM matType Unit := do
   let t ← get
   let lastIdx := t.free.size - 1
   if let some r := t.basic.idxOf? artVar then
-    match (List.range lastIdx).find? fun j => t.mat[(r, j)]! != 0 with
-    | some j => doPivotOperation r j
-    | none =>
-      set (t.drop [0, r] [])
-      return
+    let some j := (List.range lastIdx).find? fun j => t.mat[(r, j)]! != 0
+      | throwError "removeArtificial: the artificial variable cannot leave the basis"
+    doPivotOperation r j
   let t ← get
   set (t.drop [0] [t.free.idxOf artVar])
 
@@ -122,9 +127,9 @@ def removeArtificial (artVar : Nat) : SimplexAlgorithmM matType Unit := do
 Returns the optimal value of the linear program given by the matrix `A`, or why it has none.
 
 The variables `x₀, …, xₘ₋₁` are the columns of `A`, and each row `(a₀, …, aₘ₋₁)` is the equation
-`a₀ x₀ + ⋯ + aₘ₋₁ xₘ₋₁ = 0`. The objective is `x₀`, which is maximized; column `0` must have a
-single nonzero entry, in row `0`. The last variable `xₘ₋₁` is the constant `1`, and the variables
-`x₁, …, xₘ₋₂` are nonnegative.
+`a₀ x₀ + ⋯ + aₘ₋₁ xₘ₋₁ = 0`. The objective is `x₀`, which is maximized and has no sign
+constraint; column `0` must have a single nonzero entry, in row `0`. The last variable `xₘ₋₁` is
+the constant `1`, and the variables `x₁, …, xₘ₋₂` are nonnegative.
 -/
 def simplexOptimalBound {n m : Nat} (A : matType n m) :
     Lean.Meta.MetaM (Except NoOptimum Rat) := do
@@ -148,7 +153,7 @@ def simplexOptimalBound {n m : Nat} (A : matType n m) :
     -- Phase 1: entering `artVar` in the worst row makes every constraint row nonnegative.
     let phase1 : SimplexAlgorithmM matType Bool := do
       doPivotOperation (worst + 1) lastIdx
-      runOptimLoop 0 2
+      runOptimLoop 2
     let (res, t1) ← phase1.run (phase1Tableau t (m + 1) artVar)
     unless res matches .ok true do
       throwError "simplexOptimalBound: phase 1 did not reach an optimum"
@@ -156,7 +161,7 @@ def simplexOptimalBound {n m : Nat} (A : matType n m) :
       return .error .infeasible
     t := (← (removeArtificial artVar).run t1).2
   -- Phase 2.
-  let (res, t2) ← (runOptimLoop 0 1).run t
+  let (res, t2) ← (runOptimLoop 1).run t
   match res with
   | .ok true => return .ok t2.mat[(0, t2.free.size - 1)]!
   | .ok false => return .error .unbounded
