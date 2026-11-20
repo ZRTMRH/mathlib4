@@ -63,26 +63,33 @@ constrains, so no bound on `e` follows from the hypotheses (in which nonlinear t
 function returns `none`, and the caller tells the two apart.
 
 Otherwise it returns `some (comps, maxVar, goalScalingFactor) : List Comp × ℕ × ℤ` where:
-- `comps` are the comparisons with the dummy variable removed: first the comparison `-1 < 0` added
-  by `getLinearCombinations`, last the one coming from `H`
+- `comps` are the comparisons with the dummy variable removed: first the comparison `-1 < 0`, last
+  the one coming from `H`
 - `maxVar` is the maximum variable index (after removing the dummy variable)
 - `goalScalingFactor` is the extracted scaling factor `k` -/
-def parseLinarithStructure (ty H : Expr) (z : FVarId)
-    (cfg : TransparencyMode := .reducible) : MetaM (Option (List Comp × ℕ × ℤ)) := do
+def parseLinarithStructure (ty H : Expr) (z : FVarId) :
+    MetaM (Option (List Comp × ℕ × ℤ)) := do
   let hyps := H :: (← getLocalHyps).toList
-  -- Preprocess with the preprocessors that `linarith` uses in its default configuration (see
-  -- `Linarith.runLinarith`), so that the bound is computed from the same facts that `linarith`
-  -- later uses to prove it. In particular, this adds the facts `0 ≤ (n : K)` for the casts of
-  -- natural numbers. The preprocessors need a goal, and it has to live in the current context,
-  -- which contains `z`.
-  let pps := Linarith.splitConjunctions.globalize.branching :: Linarith.defaultPreprocessors
+  -- Preprocess as `linarith` does in its default configuration (see `Linarith.runLinarith`), so
+  -- that the bound is computed from the same facts that `linarith` later uses to prove it. In
+  -- particular, this adds the facts `0 ≤ (n : K)` for the casts of natural numbers. The
+  -- preprocessors need a goal, and it has to live in the current context, which contains `z`.
+  let cfg : LinarithConfig := {}
+  let pps :=
+    (if cfg.splitHypotheses then [Linarith.splitConjunctions.globalize.branching] else []) ++
+      (if cfg.splitNe then [Linarith.removeNe] else []) ++ cfg.preprocessors
   let g ← mkFreshExprMVar (mkConst ``False)
   let [(_, es)] ← Linarith.preprocess pps g.mvarId! hyps
     | throwError "linear optimization: internal error: preprocessing did not give exactly one case"
   -- As in `linarith`, compare the types up to definitional equality: `ty` may be an assigned
   -- metavariable, e.g. after `refine fun x => ?_`.
   let hypSet ← es.filterM fun h => do isDefEq ty (← typeOfIneqProof h)
-  let (comps, maxVar, inputs) ← getLinearCombinations cfg hypSet
+  -- The linear forms, as `Linarith.proveFalseByLinarith` computes them: the comparison `-1 < 0`
+  -- first, then the hypotheses in reverse order, each equality followed by its negation.
+  let h :: _ := hypSet | throwError "linear optimization: internal error: no hypotheses"
+  let inputs : List (Expr × Option ℕ) := (← mkNegOneLtZeroProof (← typeOfIneqProof h), none) ::
+    (← addNegEqProofsIdx hypSet.zipIdx).reverse.map fun (e, i) => (e, some i)
+  let (comps, maxVar) ← linearFormsAndMaxVar cfg.transparency (inputs.map (·.1))
   -- Find the comparison coming from `H`: its hypothesis is the only one mentioning `z`.
   let mentionsZ ← hypSet.mapM fun h => return (← instantiateMVars (← inferType h)).containsFVar z
   let some hIdx := mentionsZ.idxOf? true
