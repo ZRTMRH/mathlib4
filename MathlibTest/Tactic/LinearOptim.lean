@@ -203,11 +203,11 @@ example (k : ℤ) (h1 : k < 0) (h2 : 0 < k) (x : ℚ) (hx : x ≤ 1) : True := b
   maximize x
   trivial
 
--- The goal is not used: from its negation `5 ≤ x`, `linarith` would get a bound.
+-- The goal is not used: from its negation `x ≤ 5`, `linarith` would get the bound `x ≤ 5`.
 /-- error: maximize: an upper bound cannot be produced for x.
     The expression may be unbounded. -/
 #guard_msgs in
-example (x : ℚ) (h : 0 ≤ x) : x < 5 := by
+example (x : ℚ) (h : 0 ≤ x) : 5 < x := by
   maximize x
 
 /-! ### Naming the new hypothesis -/

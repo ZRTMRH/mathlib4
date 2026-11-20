@@ -174,7 +174,7 @@ of the linear program of `Problem.toMatrix` consists of multipliers `yⱼ ≥ 0`
 
 Strict hypotheses are treated as non-strict: when the hypotheses are consistent, the points that
 satisfy them are dense among those that satisfy their non-strict versions, so that both have the
-same least upper bound on `t`. Whether it is attained is decided afterwards by `linarith`. -/
+same upper bounds on `t`. Whether it is attained is decided afterwards by `linarith`. -/
 def computeOptimalBound (e : Expr) (isMaximize : Bool) (g : MVarId) :
     MetaM (Except NoBound ℚ) := g.withContext do
   let ⟨u, ty, e⟩ ← inferTypeQ' e
@@ -216,7 +216,8 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
     if isMaximize then m!"maximize: an upper bound cannot be produced for {e}.\n    {reason}"
     else m!"minimize: a lower bound cannot be produced for {e}.\n    {reason}"
   let inconsistent := noBound "The constraints may be inconsistent."
-  -- Without error recovery, so that an elaboration error in the expression stops the tactic.
+  -- Without error recovery, so that an elaboration error in the expression, such as an unknown
+  -- identifier, is thrown instead of being logged and replaced by `sorry`.
   let eExpr ← withoutRecover <| elabTerm e none
   if eExpr.hasExprMVar then
     throwError "{tacName}: the expression {e} contains holes"
