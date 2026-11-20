@@ -227,8 +227,8 @@ end BoundComputation
 section TacticImplementation
 
 /-- Runs `maximize e` (if `isMaximize`) or `minimize e`, naming the new hypothesis `h` if given:
-computes the optimal bound, suggests a `have` stating it, and runs that `have`. The bound is
-strict if `linarith` can prove the strict version. -/
+computes the optimal bound, suggests a `have` stating it, and adds the hypothesis with the proof
+found by `linarith`. The bound is strict if `linarith` can prove the strict version. -/
 def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM Unit :=
   withMainContext do
   let noBound (reason : String) : MessageData :=
@@ -243,35 +243,41 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
   | .error .inconsistent => throwError inconsistent
   | .error .unbounded => throwError noBound "The expression may be unbounded."
   | .ok bound =>
-    -- The statement of the bound: `e < bound` or `e ≤ bound` for `maximize`, and `bound < e` or
-    -- `bound ≤ e` for `minimize`.
-    let statement (strict : Bool) : TacticM Term :=
-      match isMaximize, strict with
+    -- The bound, as an expression of the type of `e`. Only the numeral is elaborated, not `e`.
+    let q ← elabTermEnsuringType (quote bound : Term) (← inferType eExpr)
+    -- The statement of the bound: `e < q` or `e ≤ q` for `maximize`, and `q < e` or `q ≤ e` for
+    -- `minimize`.
+    let statement (strict : Bool) : MetaM Expr :=
+      let (a, b) := if isMaximize then (eExpr, q) else (q, eExpr)
+      mkAppM (if strict then ``LT.lt else ``LE.le) #[a, b]
+    let prove (t : Expr) : MetaM Expr := do
+      let g ← mkFreshExprMVar t
+      Linarith.linarith false [] {} g.mvarId!
+      instantiateMVars g
+    -- The bound is strict if `linarith` proves the strict version. Inconsistent hypotheses prove
+    -- every bound, and in particular a strict one.
+    let strictStatement ← statement true
+    let (strict, t, proof) ← match ← observing? (prove strictStatement) with
+      | some proof =>
+        if ← hypothesesInconsistent (← getMainGoal) eExpr then throwError inconsistent
+        pure (true, strictStatement, proof)
+      | none => do
+        let t ← statement false
+        pure (false, t, ← prove t)
+    -- Suggest the `have`, stated with the syntax of `e` as written by the user.
+    let tStx ← match isMaximize, strict with
       | true, true => `($e < $(quote bound))
       | true, false => `($e ≤ $(quote bound))
       | false, true => `($(quote bound) < $e)
       | false, false => `($(quote bound) ≤ $e)
-    -- Check whether `linarith` proves the strict version of the bound.
-    let canProveStrict ← succeeds do
-      let strictGoal ← mkFreshExprMVar (← elabTerm (← statement true) none)
-      Linarith.linarith false [] {} strictGoal.mvarId!
-    -- Inconsistent hypotheses prove every bound, and in particular a strict one.
-    if canProveStrict then
-      if ← hypothesesInconsistent (← getMainGoal) eExpr then
-        throwError inconsistent
-    let t ← statement canProveStrict
-    -- Suggest the `have`, and run it. Without a name, the suggestion is `have : t := ...`, which
-    -- introduces `this` when it is pasted into the proof; when we run it ourselves, `this` has to
-    -- be written explicitly, as the name introduced by `have :` in a quotation is inaccessible.
-    let (suggestion, tac) ← match h with
-      | some v => do
-        let tac ← `(tactic| have $v : $t := by linarith)
-        pure (tac, tac)
-      | none => do
-        pure (← `(tactic| have : $t := by linarith),
-          ← `(tactic| have $(mkIdent `this) : $t := by linarith))
+    let suggestion ← match h with
+      | some v => `(tactic| have $v : $tStx := by linarith)
+      | none => `(tactic| have : $tStx := by linarith)
     Meta.Tactic.TryThis.addSuggestion (← getRef) suggestion
-    evalTactic tac
+    -- Add the hypothesis with the statement and proof found above. Without a name, it is `this`,
+    -- written explicitly: the name introduced by `have :` in a quotation is inaccessible.
+    let name := h.getD (mkIdent `this)
+    evalTactic (← `(tactic| have $name : $(← Term.exprToSyntax t) := $(← Term.exprToSyntax proof)))
 
 /--
 `maximize e` finds the least upper bound `q` for `e` given the linear constraints produced by
