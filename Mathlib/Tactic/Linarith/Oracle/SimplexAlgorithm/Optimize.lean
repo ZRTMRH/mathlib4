@@ -53,8 +53,9 @@ feasible: the values of rows `firstRow, …` in the last column must be nonnegat
 
 Pivots by Bland's rule: the entering variable is the one with smallest index among those that
 increase the objective, and ties in the ratio test are broken by smallest index. This is the rule of
-`SimplexAlgorithm.choosePivots`, which however looks for a feasible solution of a problem known to
-be bounded, with only row `0` unconstrained, and so cannot report an unbounded objective.
+`SimplexAlgorithm.choosePivots`, which cannot be reused: it is written for the bounded program of
+`SimplexAlgorithm.stateLP`, so its ratio test always starts at row `1` and assumes that some row
+limits the entering variable.
 
 Returns `true` when an optimum is reached and `false` when the objective is unbounded.
 -/
@@ -92,7 +93,7 @@ def Tableau.drop (t : Tableau matType) (rows cols : List Nat) : Tableau matType 
   ⟨basic, free, ofValues vals⟩
 
 /--
-Extends a tableau whose rows `1, 2, ...` are constraint rows with an artificial free variable
+Extends a tableau whose rows `1, 2, …` are constraint rows with an artificial free variable
 `artVar`, inserted just before the constant column and added to every constraint row, and with a
 new row `0` for the phase 1 objective `phase1Var = -artVar`. The original rows move down by one.
 -/
@@ -107,11 +108,11 @@ def phase1Tableau (t : Tableau matType) (phase1Var artVar : Nat) : Tableau matTy
 
 /--
 Given a phase 1 tableau whose objective (row `0`) has reached `0`, removes the phase 1 objective
-row and the artificial variable `artVar`. If `artVar` is still basic, its value is `0`, so it is
-pivoted out against a free variable with nonzero coefficient in its row, which does not change the
-basic solution. Such a variable exists other than the constant: at the start of phase 1, `artVar`
-and the constant were both free, so the equations, which pivoting does not change, do not
-determine `artVar` from the constant.
+row and the artificial variable `artVar`. If `artVar` is still basic, its value is `0`, so pivoting
+it out against a free variable with a nonzero coefficient in its row does not change the basic
+solution. Some free variable other than the constant has one: pivoting does not change the
+solutions of the equations, and at the start of phase 1 `artVar` and the constant were both free,
+so the equations do not determine `artVar` as a multiple of the constant.
 -/
 def removeArtificial (artVar : Nat) : SimplexAlgorithmM matType Unit := do
   let t ← get
