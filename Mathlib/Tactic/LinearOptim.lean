@@ -23,14 +23,14 @@ nonlinear terms such as `x * y` are treated as atoms.
 * `maximize` - Finds an upper bound for a linear expression
 * `minimize` - Finds a lower bound for a linear expression
 * `parseLinarithStructure` - Turns the hypotheses into the comparisons that `linarith` uses
-* `preprocessLinearOptim` - Converts constraints to matrix for simplex
+* `Problem.toMatrix` - Converts constraints to matrix for simplex
 * `computeOptimalBound` - Core function computing optimal bounds
 
 ## Implementation
 
 The `maximize` and `minimize` tactics work by:
 1. Parsing the linear constraints and target expression using `parseLinarithStructure`
-2. Converting them to matrix form suitable for the simplex algorithm via `preprocessLinearOptim`
+2. Converting them to matrix form suitable for the simplex algorithm via `Problem.toMatrix`
 3. Finding the optimal solution using `computeOptimalBound` which calls `simplexOptimalBound`
 4. Suggesting a `have` statement with the computed bound that can be proved with `linarith`
 
@@ -49,6 +49,20 @@ namespace Mathlib.Tactic.LinearOptim
 
 section Preprocessing
 
+/-- The linear program behind `maximize e`, in the linear forms of `linarith`. Variable `0` is the
+constant term. -/
+structure Problem where
+  /-- The comparison `-1 < 0`, which `linarith` adds to the hypotheses. -/
+  negOne : Comp
+  /-- The other comparisons coming from the hypotheses, in the order of the hypotheses. -/
+  hyps : List Comp
+  /-- The comparison `k * e < 0` coming from the dummy hypothesis `e < z`, with `z` removed. -/
+  objective : Comp
+  /-- The largest variable index. -/
+  maxVar : ℕ
+  /-- The positive factor `k` by which `linarith`'s preprocessing scales `e`. -/
+  scale : ℕ
+
 /-- Turns the hypotheses in the local context, which contains a dummy hypothesis `H`, into the
 linear comparisons that `linarith` would use.
 
@@ -61,14 +75,9 @@ The comparison coming from `H` is the only one that mentions `z`, so `z` is a va
 in it and in no other comparison. Any other such variable is a part of `e` that no hypothesis
 constrains, so no bound on `e` follows from the hypotheses (in which nonlinear terms such as
 `x * y` are atoms): either `e` is unbounded or the hypotheses are inconsistent. In that case this
-function returns `none`, and the caller tells the two apart.
-
-Otherwise it returns `some (comps, maxVar, goalScalingFactor) : List Comp × ℕ × ℤ` where:
-- `comps` are the comparisons with the dummy variable removed: first the comparison `-1 < 0`, last
-  the one coming from `H`
-- `maxVar` is the maximum variable index (after removing the dummy variable)
-- `goalScalingFactor` is the extracted scaling factor `k` -/
-def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option (List Comp × ℕ × ℤ)) := do
+function returns `none`, and the caller tells the two apart. Otherwise it returns the problem,
+with `z` removed from the comparisons. -/
+def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option Problem) := do
   let hyps := (← getLocalHyps).toList
   -- Preprocess as `linarith` does in its default configuration (see `Linarith.runLinarith`), so
   -- that the bound is computed from the same facts that `linarith` later uses to prove it. In
@@ -85,29 +94,39 @@ def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option (List Comp �
   -- metavariable, e.g. after `refine fun x => ?_`.
   let hypSet ← es.filterM fun h => do isDefEq ty (← typeOfIneqProof h)
   -- The linear forms, as `Linarith.proveFalseByLinarith` computes them: the comparison `-1 < 0`
-  -- first, then the hypotheses in reverse order, each equality followed by its negation.
+  -- first, then the hypotheses in reverse order, each equality followed by its negation and each
+  -- tagged with the index of its hypothesis in `hypSet`.
   let h :: _ := hypSet | throwError "linear optimization: internal error: no hypotheses"
-  let inputs : List (Expr × Option ℕ) := (← mkNegOneLtZeroProof (← typeOfIneqProof h), none) ::
-    (← addNegEqProofsIdx hypSet.zipIdx).reverse.map fun (e, i) => (e, some i)
-  let (comps, maxVar) ← linearFormsAndMaxVar cfg.transparency (inputs.map (·.1))
+  let tagged := (← addNegEqProofsIdx hypSet.zipIdx).reverse
+  let negOneLtZero ← mkNegOneLtZeroProof (← typeOfIneqProof h)
+  let (comps, maxVar) ← linearFormsAndMaxVar cfg.transparency (negOneLtZero :: tagged.map (·.1))
+  let negOne :: comps := comps
+    | throwError "linear optimization: internal error: no linear forms"
   -- Find the comparison coming from `H`: its hypothesis is the only one mentioning `z`.
   let mentionsZ ← hypSet.mapM fun h => return (← instantiateMVars (← inferType h)).containsFVar z
   let some hIdx := mentionsZ.idxOf? true
     | throwError "linear optimization: internal error: the dummy hypothesis was lost"
-  let some goalPos := inputs.findIdx? (·.2 == some hIdx)
+  let some goalPos := tagged.findIdx? (·.2 == hIdx)
     | throwError "linear optimization: internal error: the dummy hypothesis has no linear form"
   let goalComp := comps[goalPos]!
   let others := comps.eraseIdx goalPos
   -- The variables of `goalComp` that occur in no other comparison.
-  match goalComp.coeffs.filter fun (v, _) => others.all fun c => !c.coeffs.any (·.1 == v) with
-  | [(zIdx, negScalingFactor)] =>
-    if 0 ≤ negScalingFactor then
-      throwError "linear optimization: internal error: scaling factor {-negScalingFactor}"
+  let onlyInGoal := goalComp.coeffs.filter fun (v, _) =>
+    (negOne :: others).all fun c => !c.coeffs.any (·.1 == v)
+  match onlyInGoal with
+  | [(zIdx, negScale)] =>
+    if 0 ≤ negScale then
+      throwError "linear optimization: internal error: scaling factor {-negScale}"
     -- Remove `z`, renumbering the variables after it.
     let removeZ (c : Comp) : Comp :=
       { c with coeffs := c.coeffs.filterMap fun (v, a) =>
           if v == zIdx then none else some (if zIdx < v then v - 1 else v, a) }
-    return some ((others ++ [goalComp]).map removeZ, maxVar - 1, -negScalingFactor)
+    return some
+      { negOne := removeZ negOne
+        hyps := (others.map removeZ).reverse
+        objective := removeZ goalComp
+        maxVar := maxVar - 1
+        scale := (-negScale).toNat }
   | [] => throwError "linear optimization: internal error: the dummy variable occurs elsewhere"
   | _ => return none
 
@@ -116,33 +135,15 @@ end Preprocessing
 
 section MatrixPreprocessing
 
-/-- Converts linear constraints into a matrix suitable for the simplex algorithm.
-
-This function takes the parsed constraints from `parseLinarithStructure` and builds
-a matrix for `simplexOptimalBound`. The matrix has dimensions `(maxVar + 1) × (rr.length + 1)`.
-
-The function reorders and transforms coefficients:
-- The objective function `rH` goes to the last column with negated coefficients
-- The last comparison of `rr`, which is the comparison `-1 < 0`, goes to the first column
-- The other comparisons keep their relative positions
-
-This specific ordering prepares the matrix for the simplex algorithm's expected format. -/
-def preprocessLinearOptim (matType : ℕ → ℕ → Type) [UsableInSimplexAlgorithm matType]
-    (rH : Linarith.Comp) (rr : List Linarith.Comp) (maxVar : ℕ) :
-    matType (maxVar + 1) (rr.length + 1) :=
-  let hyps := rr ++ [rH]
-  let values : List (ℕ × ℕ × ℚ) :=
-    hyps.foldlIdx (init := []) fun idx cur comp =>
-    if idx == rr.length then
-      cur ++ comp.coeffs.map fun (var, c) =>
-        (var, idx, c * -1)
-    else if idx == rr.length - 1 then
-      cur ++ comp.coeffs.map fun (var, c) =>
-        (var, 0, c)
-    else
-      cur ++ comp.coeffs.map fun (var, c) =>
-        (var, idx + 1, c)
-  ofValues values
+/-- The matrix of `p` for `simplexOptimalBound`. Row `i` holds the coefficients of variable `i`;
+column `0` is the comparison `-1 < 0`, the next columns are the hypotheses, and the last column is
+the negated objective. -/
+def Problem.toMatrix (matType : ℕ → ℕ → Type) [UsableInSimplexAlgorithm matType] (p : Problem) :
+    matType (p.maxVar + 1) (p.hyps.length + 2) :=
+  let column (j : ℕ) (sign : ℚ) (c : Comp) : List (ℕ × ℕ × ℚ) :=
+    c.coeffs.map fun (v, a) => (v, j, sign * a)
+  ofValues <| column 0 1 p.negOne ++ (p.hyps.zipIdx.flatMap fun (c, j) => column (j + 1) 1 c) ++
+    column (p.hyps.length + 1) (-1) p.objective
 
 
 end MatrixPreprocessing
@@ -192,13 +193,10 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
   -- The dummy hypothesis is always `< z` (for a new dummy variable `z`) to ensure the scaling
   -- factor `k` is positive and that the Comp object represents `k*E`.
   withLocalDeclDQ `z ty fun z ↦ withLocalDeclDQ `H q($target_exp < $z) fun _ ↦ do
-  let some (comps, maxVar, scalingFactor) ← parseLinarithStructure ty z.fvarId!
-    | unboundedOrInconsistent
-  let rH :: rr := comps.reverse | failure
-  let A := preprocessLinearOptim DenseMatrix rH rr maxVar
-  match ← simplexOptimalBound A with
+  let some p ← parseLinarithStructure ty z.fvarId! | unboundedOrInconsistent
+  match ← simplexOptimalBound (p.toMatrix DenseMatrix) with
   | .ok r_opt =>
-    let k_q : ℚ := scalingFactor
+    let k_q : ℚ := p.scale
     -- This derivation is based on the solver pipeline.
     -- The pipeline takes a Comp for `k*E` and returns `r_opt = min(-(k*E))`.
     -- This can be solved to show that `max(E) = (- r_opt) / k`.

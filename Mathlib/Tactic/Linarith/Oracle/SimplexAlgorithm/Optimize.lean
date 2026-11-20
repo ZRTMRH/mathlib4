@@ -120,7 +120,7 @@ def removeArtificial (artVar : Nat) : SimplexAlgorithmM matType Unit := do
 
 /--
 Returns the optimal value of the linear program encoded by the matrix `A`, as built by
-`Mathlib.Tactic.LinearOptim.preprocessLinearOptim`.
+`Mathlib.Tactic.LinearOptim.Problem.toMatrix`.
 
 The variables are the columns of `A`, and each row `(a₀, …, aₘ)` is the equation
 `a₀ x₀ + ⋯ + aₘ xₘ = 0`. The column `x₀` has a single nonzero entry `-1` in row `0`, so row `0`
