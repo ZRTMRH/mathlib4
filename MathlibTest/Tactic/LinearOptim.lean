@@ -1,6 +1,9 @@
-import Mathlib.Basic.Real.Basic
+module
+
 import Mathlib.Tactic.Linarith.NNRealPreprocessor
 import Mathlib.Tactic.LinearOptim
+
+/-! # Tests for the `maximize` and `minimize` tactics -/
 
 set_option linter.unusedVariables false
 set_option autoImplicit false
@@ -262,6 +265,20 @@ example (x : ℕ) (h : x ≤ 3) : True := by
   minimize x
   trivial
 
+/-- error: maximize only works over linearly ordered fields, such as ℚ and ℝ, but a has type ℝ≥0. -/
+#guard_msgs in
+open NNReal in
+example (a : ℝ≥0) (h : a ≤ 3) : True := by
+  maximize a
+  trivial
+
+-- The order must make the field an ordered field.
+/-- error: maximize only works over linearly ordered fields, such as ℚ and ℝ, but x has type K. -/
+#guard_msgs in
+example {K : Type*} [Field K] [LinearOrder K] (x : K) (h : x ≤ 3) : True := by
+  maximize x
+  trivial
+
 -- Any linearly ordered field works.
 /--
 info: Try this:
@@ -332,6 +349,19 @@ example (x y : ℚ) (h3 : x ≤ 10) (h2 : x + y ≤ 5) (h0 : -2 * x + 3 * y ≤ 
   maximize x
   trivial
 
+-- A problem on which starting phase 1 of the simplex algorithm from another row than the one with
+-- the most negative value gives a wrong bound.
+/--
+info: Try this:
+  [apply] have : -2 * x - 3 * y - z < -53 / 9 := by linarith
+-/
+#guard_msgs in
+example (x y z : ℚ) (h0 : -2 * x - 3 * y - 3 * z ≤ 1) (h1 : 3 * x + y + 2 * z < 4)
+    (h2 : -2 * x + 2 * y - z ≤ 2) (h3 : -2 * x - 2 * y - z < -5) (h4 : -x - y - z ≤ 0) :
+    True := by
+  maximize -2 * x - 3 * y - z
+  trivial
+
 -- Hypotheses inconsistent only because of a strict inequality: `x < -2` and `x ≥ -2`.
 /-- error: minimize: a lower bound cannot be produced for -2 * x.
     The constraints may be inconsistent. -/
@@ -391,6 +421,7 @@ info: Try this:
 example (x : ℚ) (n : ℕ) (h : x ≤ -(n : ℚ)) : True := by
   maximize x
   trivial
+
 /--
 info: Try this:
   [apply] have : x ≤ 5 := by linarith
@@ -399,6 +430,7 @@ info: Try this:
 example (x : ℚ) (n : ℕ) (h : x ≤ 5 - (n : ℚ)) (h2 : x ≤ 10) : True := by
   maximize x
   trivial
+
 /--
 info: Try this:
   [apply] have : x ≤ 4 := by linarith
@@ -407,6 +439,7 @@ info: Try this:
 example (m n : ℕ) (x : ℚ) (h : x ≤ 4 - (m : ℚ) - 2 * (n : ℚ)) : True := by
   maximize x
   trivial
+
 -- The cast may occur only in the expression.
 /--
 info: Try this:
@@ -416,6 +449,7 @@ info: Try this:
 example (n : ℕ) : True := by
   minimize (n : ℚ)
   trivial
+
 -- That `n` is a natural number is not used beyond `0 ≤ (n : ℚ)`.
 /--
 info: Try this:
@@ -425,6 +459,7 @@ info: Try this:
 example (n : ℕ) (h : (n : ℚ) ≤ 7 / 2) : True := by
   maximize (n : ℚ)
   trivial
+
 -- Casts of integers can be negative.
 /--
 error: maximize: an upper bound cannot be produced for x.
@@ -434,6 +469,7 @@ error: maximize: an upper bound cannot be produced for x.
 example (x : ℚ) (k : ℤ) (h : x ≤ -(k : ℚ)) : True := by
   maximize x
   trivial
+
 -- Conjunctions are split.
 /--
 info: Try this:
@@ -453,6 +489,7 @@ info: Try this:
 example (n : ℕ) (x : ℚ) (h : 1 ≤ x) : True := by
   minimize x + (n : ℚ)
   trivial
+
 /--
 info: Try this:
   [apply] have : x - (n : ℚ) ≤ 3 := by linarith
@@ -461,6 +498,7 @@ info: Try this:
 example (n : ℕ) (x : ℚ) (h : x ≤ 3) : True := by
   maximize x - (n : ℚ)
   trivial
+
 /--
 info: Try this:
   [apply] have : x ≤ 4 := by linarith
@@ -469,6 +507,7 @@ info: Try this:
 example (n : ℕ) (x : ℚ) (h : x + (n : ℚ) ≤ 4) : True := by
   maximize x
   trivial
+
 -- A cast that cancels out of the expression.
 /--
 info: Try this:
@@ -488,6 +527,7 @@ info: Try this:
 example (x y z : ℚ) (h : x ≤ 1 ∧ (y ≤ 2 ∧ z ≤ 3)) : True := by
   maximize x + y + z
   trivial
+
 /--
 info: Try this:
   [apply] have : x + y ≤ 3 := by linarith
@@ -496,6 +536,7 @@ info: Try this:
 example (x y : ℚ) (h : ¬ 1 < x ∧ y ≤ 2) : True := by
   maximize x + y
   trivial
+
 -- As for `linarith`, hypotheses about natural numbers are not used for an expression in `ℚ`.
 /--
 error: maximize: an upper bound cannot be produced for (n : ℚ).
@@ -505,6 +546,7 @@ error: maximize: an upper bound cannot be produced for (n : ℚ).
 example (n : ℕ) (h : n ≤ 3) : True := by
   maximize (n : ℚ)
   trivial
+
 -- With `Mathlib.Tactic.Linarith.NNRealPreprocessor`, hypotheses in `ℝ≥0` are used.
 /--
 info: Try this:
@@ -515,6 +557,7 @@ open NNReal in
 example (a : ℝ≥0) (x : ℝ) (h : x ≤ (a : ℝ)) (ha : a ≤ 3) : True := by
   maximize x
   trivial
+
 -- The fact `0 ≤ (n : ℚ)`, which makes the hypotheses inconsistent, comes from the expression.
 /--
 error: maximize: an upper bound cannot be produced for (n : ℚ) + x.
@@ -545,6 +588,7 @@ error: maximize: an upper bound cannot be produced for y.
 example (x y : ℚ) (h : x ≤ 3) : True := by
   maximize y
   trivial
+
 /--
 error: minimize: a lower bound cannot be produced for x + y.
     The expression may be unbounded.
@@ -553,6 +597,7 @@ error: minimize: a lower bound cannot be produced for x + y.
 example (x y : ℚ) (h : x ≤ 3) (h' : 0 ≤ x) : True := by
   minimize x + y
   trivial
+
 /--
 error: maximize: an upper bound cannot be produced for y.
     The constraints may be inconsistent.
@@ -561,6 +606,7 @@ error: maximize: an upper bound cannot be produced for y.
 example (x y : ℚ) (h : x ≤ 3) (h' : 4 ≤ x) : True := by
   maximize y
   trivial
+
 -- A fraction in the expression changes the scaling factor.
 /--
 info: Try this:
@@ -583,6 +629,7 @@ example : ∀ x : ℚ, x ≤ 2 → True := by
   refine fun x hx => ?_
   maximize x
   trivial
+
 /--
 info: Try this:
   [apply] have : y ≤ 3 := by linarith
@@ -592,6 +639,7 @@ example (x : ℚ) (hx : x ≤ 2) : True := by
   let y := x + 1
   maximize y
   trivial
+
 -- Without a name, the new hypothesis is `this`.
 /--
 info: Try this:
@@ -601,6 +649,7 @@ info: Try this:
 example (x : ℚ) (hx : x ≤ 2) : x ≤ 2 := by
   maximize x
   exact this
+
 /--
 error: maximize: the expression x + _ contains holes
 -/
@@ -608,6 +657,7 @@ error: maximize: the expression x + _ contains holes
 example (x : ℚ) (hx : x ≤ 2) : True := by
   maximize x + _
   trivial
+
 -- An error in the expression is reported once.
 /--
 error: Unknown identifier `undefinedThing`
