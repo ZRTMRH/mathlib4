@@ -658,6 +658,20 @@ example (x : ℚ) (hx : x ≤ 2) : True := by
   maximize x + _
   trivial
 
+@[deprecated "use `id`" (since := "2026-01-01")] abbrev oldId (q : ℚ) : ℚ := q
+
+-- The expression is elaborated once, so a deprecated constant in it gives one warning.
+/--
+warning: `oldId` has been deprecated: use `id`
+---
+info: Try this:
+  [apply] have : oldId x < 2 := by linarith
+-/
+#guard_msgs in
+example (x : ℚ) (h : x < 2) : True := by
+  maximize oldId x
+  trivial
+
 -- An error in the expression is reported once.
 /--
 error: Unknown identifier `undefinedThing`

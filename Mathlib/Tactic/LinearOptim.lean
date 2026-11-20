@@ -207,6 +207,7 @@ computes the optimal bound, suggests a `have` stating it, and adds the hypothesi
 found by `linarith`. The bound is strict if `linarith` can prove the strict version. -/
 def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM Unit :=
   withMainContext do
+  let tacName := if isMaximize then "maximize" else "minimize"
   let noBound (reason : String) : MessageData :=
     if isMaximize then m!"maximize: an upper bound cannot be produced for {e}.\n    {reason}"
     else m!"minimize: a lower bound cannot be produced for {e}.\n    {reason}"
@@ -214,18 +215,17 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
   -- Without error recovery, so that an error in the expression is the only error reported.
   let eExpr ← withoutRecover <| elabTerm e none
   if eExpr.hasExprMVar then
-    throwError "{if isMaximize then "maximize" else "minimize"}: the expression {e} contains holes"
+    throwError "{tacName}: the expression {e} contains holes"
   match ← computeOptimalBound eExpr isMaximize (← getMainGoal) with
   | .error .inconsistent => throwError inconsistent
   | .error .unbounded => throwError noBound "The expression may be unbounded."
   | .ok bound =>
     -- The bound, as an expression of the type of `e`. Only the numeral is elaborated, not `e`.
-    let q ← elabTermEnsuringType (quote bound : Term) (← inferType eExpr)
-    -- The statement of the bound: `e < q` or `e ≤ q` for `maximize`, and `q < e` or `q ≤ e` for
-    -- `minimize`.
-    let statement (strict : Bool) : MetaM Expr :=
-      let (a, b) := if isMaximize then (eExpr, q) else (q, eExpr)
-      mkAppM (if strict then ``LT.lt else ``LE.le) #[a, b]
+    let boundExpr ← elabTermEnsuringType (quote bound : Term) (← inferType eExpr)
+    -- The statement of the bound: `e < bound` or `e ≤ bound` for `maximize`, and `bound < e` or
+    -- `bound ≤ e` for `minimize`.
+    let (a, b) := if isMaximize then (eExpr, boundExpr) else (boundExpr, eExpr)
+    let statement (strict : Bool) : MetaM Expr := if strict then mkLt a b else mkLe a b
     let prove (t : Expr) : MetaM Expr := do
       let g ← mkFreshExprMVar t
       Linarith.linarith false [] {} g.mvarId!
@@ -239,13 +239,12 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
         pure (true, strictStatement, proof)
       | none => do
         let t ← statement false
-        pure (false, t, ← prove t)
+        let some proof ← observing? (prove t)
+          | throwError "{tacName}: internal error: linarith does not prove the bound {t}"
+        pure (false, t, proof)
     -- Suggest the `have`, stated with the syntax of `e` as written by the user.
-    let tStx ← match isMaximize, strict with
-      | true, true => `($e < $(quote bound))
-      | true, false => `($e ≤ $(quote bound))
-      | false, true => `($(quote bound) < $e)
-      | false, false => `($(quote bound) ≤ $e)
+    let (lhs, rhs) : Term × Term := if isMaximize then (e, quote bound) else (quote bound, e)
+    let tStx ← if strict then `($lhs < $rhs) else `($lhs ≤ $rhs)
     let suggestion ← match h with
       | some v => `(tactic| have $v : $tStx := by linarith)
       | none => `(tactic| have : $tStx := by linarith)
