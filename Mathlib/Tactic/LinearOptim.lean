@@ -67,8 +67,8 @@ linear comparisons that `linarith` would use.
 
 The caller adds the dummy hypothesis `H : e < z`, where `z` is a fresh variable, to the context
 to capture how the expression `e` is transformed. Preprocessing turns it into `e - z < 0`, which
-`cancelDenoms` may scale to `k*e - k*z < 0`; the coefficient `-k` of `z` gives the scaling factor
-`k`.
+`cancelDenoms` may scale to `k * e - k * z < 0`; the coefficient `-k` of `z` gives the scaling
+factor `k`.
 
 The comparison coming from `H` is the only one that mentions `z`, so `z` is a variable that occurs
 in it and in no other comparison. Any other such variable is a part of `e` that no hypothesis
@@ -131,11 +131,12 @@ def parseLinarithStructure (ty : Expr) (z : FVarId) : MetaM (Option Problem) := 
 
 end Preprocessing
 
-section MatrixPreprocessing
+section Matrix
 
 /-- The matrix of `p` for `simplexOptimalBound`. Row `i` holds the coefficients of variable `i`;
 column `0` is the comparison `-1 < 0`, the next columns are the hypotheses, and the last column is
-the negated objective. -/
+the negated objective. In the notation of `computeOptimalBound`, the variable of column `0` is `y`,
+those of the hypotheses are the multipliers `yⱼ`, and that of the last column is `1`. -/
 def Problem.toMatrix (matType : ℕ → ℕ → Type) [UsableInSimplexAlgorithm matType] (p : Problem) :
     matType (p.maxVar + 1) (p.hyps.length + 2) :=
   let column (j : ℕ) (sign : ℚ) (c : Comp) : List (ℕ × ℕ × ℚ) :=
@@ -143,7 +144,7 @@ def Problem.toMatrix (matType : ℕ → ℕ → Type) [UsableInSimplexAlgorithm 
   ofValues <| column 0 1 p.negOne ++ (p.hyps.zipIdx.flatMap fun (c, j) => column (j + 1) 1 c) ++
     column (p.hyps.length + 1) (-1) p.objective
 
-end MatrixPreprocessing
+end Matrix
 
 section BoundComputation
 
@@ -169,8 +170,11 @@ Let `t` be `e` or `-e`, and `k * t < 0` the comparison coming from the dummy hyp
 of the linear program of `Problem.toMatrix` consists of multipliers `yⱼ ≥ 0` of the comparisons
 `Lⱼ R 0` of `Problem.hyps`, where `R` is one of `<`, `≤` and `=`, and of the coefficient `y` of
 `-1 < 0`, of any sign, such that `∑ⱼ yⱼ * Lⱼ = k * t + y`. As `∑ⱼ yⱼ * Lⱼ ≤ 0`, this gives
-`k * t ≤ -y` (strict hypotheses are treated as non-strict here). The simplex algorithm maximizes
-`y`, and the bound on `t` is `-max y / k`. -/
+`k * t ≤ -y`. The simplex algorithm maximizes `y`, and the bound on `t` is `-max y / k`.
+
+Strict hypotheses are treated as non-strict: when the hypotheses are consistent, the points that
+satisfy them are dense among those that satisfy their non-strict versions, so that both have the
+same least upper bound on `t`. Whether it is attained is decided afterwards by `linarith`. -/
 def computeOptimalBound (e : Expr) (isMaximize : Bool) (g : MVarId) :
     MetaM (Except NoBound ℚ) := g.withContext do
   let ⟨u, ty, e⟩ ← inferTypeQ' e
@@ -212,7 +216,7 @@ def runLinearOptim (isMaximize : Bool) (e : Term) (h : Option Ident) : TacticM U
     if isMaximize then m!"maximize: an upper bound cannot be produced for {e}.\n    {reason}"
     else m!"minimize: a lower bound cannot be produced for {e}.\n    {reason}"
   let inconsistent := noBound "The constraints may be inconsistent."
-  -- Without error recovery, so that an error in the expression is the only error reported.
+  -- Without error recovery, so that an elaboration error in the expression stops the tactic.
   let eExpr ← withoutRecover <| elabTerm e none
   if eExpr.hasExprMVar then
     throwError "{tacName}: the expression {e} contains holes"

@@ -28,7 +28,8 @@ elimination and the pivot operation of the `linarith` oracle. It is used by the 
 
 3. *Phase 2* maximizes the objective from the feasible tableau.
 
-Both phases pivot by Bland's rule (`runOptimLoop`), which guarantees termination.
+Both phases pivot by [Bland's rule](https://en.wikipedia.org/wiki/Bland%27s_rule) (`runOptimLoop`),
+which guarantees termination.
 -/
 
 public meta section
@@ -119,7 +120,8 @@ def removeArtificial (artVar : Nat) : SimplexAlgorithmM matType Unit := do
   let lastIdx := t.free.size - 1
   if let some r := t.basic.idxOf? artVar then
     let some j := (List.range lastIdx).find? fun j => t.mat[(r, j)]! != 0
-      | throwError "removeArtificial: the artificial variable cannot leave the basis"
+      | throwError "removeArtificial: internal error: the artificial variable cannot leave \
+          the basis"
     doPivotOperation r j
   let t ← get
   set (t.drop [0] [t.free.idxOf artVar])
@@ -137,7 +139,7 @@ def simplexOptimalBound {n m : Nat} (A : matType n m) :
   let t ← Gauss.getTableau A
   -- The objective `x₀` is basic in row `0`, since column `0` is nonzero only in row `0`.
   unless t.basic[0]? == some 0 do
-    throwError "simplexOptimalBound: the objective column is not basic"
+    throwError "simplexOptimalBound: internal error: the objective column is not basic"
   -- If the constant column is basic, its row reads `0 = 1`: the program is infeasible.
   if t.basic.contains (m - 1) then
     return .error .infeasible
@@ -157,7 +159,7 @@ def simplexOptimalBound {n m : Nat} (A : matType n m) :
       runOptimLoop 2
     let (res, t1) ← phase1.run (phase1Tableau t (m + 1) artVar)
     unless res matches .ok true do
-      throwError "simplexOptimalBound: phase 1 did not reach an optimum"
+      throwError "simplexOptimalBound: internal error: phase 1 did not reach an optimum"
     if t1.mat[(0, t1.free.size - 1)]! < 0 then
       return .error .infeasible
     t := (← (removeArtificial artVar).run t1).2
@@ -166,6 +168,6 @@ def simplexOptimalBound {n m : Nat} (A : matType n m) :
   match res with
   | .ok true => return .ok t2.mat[(0, t2.free.size - 1)]!
   | .ok false => return .error .unbounded
-  | .error _ => throwError "simplexOptimalBound: phase 2 failed"
+  | .error _ => throwError "simplexOptimalBound: internal error: phase 2 failed"
 
 end Mathlib.Tactic.Linarith.SimplexAlgorithm
