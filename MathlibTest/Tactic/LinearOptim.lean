@@ -265,6 +265,7 @@ example (x : ℕ) (h : x ≤ 3) : True := by
   minimize x
   trivial
 
+-- `ℝ≥0` is only a semifield.
 /-- error: maximize only works over linearly ordered fields, such as ℚ and ℝ, but a has type ℝ≥0. -/
 #guard_msgs in
 open NNReal in
@@ -353,13 +354,12 @@ example (x y : ℚ) (h3 : x ≤ 10) (h2 : x + y ≤ 5) (h0 : -2 * x + 3 * y ≤ 
 -- the most negative value gives a wrong bound.
 /--
 info: Try this:
-  [apply] have : -2 * x - 3 * y - z < -53 / 9 := by linarith
+  [apply] have : -3 * x + 3 * y - 2 * z < 427 / 33 := by linarith
 -/
 #guard_msgs in
-example (x y z : ℚ) (h0 : -2 * x - 3 * y - 3 * z ≤ 1) (h1 : 3 * x + y + 2 * z < 4)
-    (h2 : -2 * x + 2 * y - z ≤ 2) (h3 : -2 * x - 2 * y - z < -5) (h4 : -x - y - z ≤ 0) :
-    True := by
-  maximize -2 * x - 3 * y - z
+example (x y z : ℚ) (h0 : x + 3 * y ≤ 5) (h1 : x - y + z ≤ 1) (h2 : -2 * x - 3 * z < 1)
+    (h3 : -x - 3 * y + 2 * z ≤ 0) (h4 : -3 * x - 2 * y + 2 * z < 6) : True := by
+  maximize -3 * x + 3 * y - 2 * z
   trivial
 
 -- Hypotheses inconsistent only because of a strict inequality: `x < -2` and `x ≥ -2`.
