@@ -35,12 +35,12 @@ public meta section
 
 namespace Mathlib.Tactic.Linarith.SimplexAlgorithm
 
-/-- Why `simplexOptimalBound` produces no bound, stated for the problem of the `maximize` tactic. -/
-inductive LinearOptimException
-  /-- The hypotheses may be inconsistent. -/
-  | inconsistent : LinearOptimException
-  /-- The expression may be unbounded. -/
-  | unbounded : LinearOptimException
+/-- Why a linear program has no optimal value. -/
+inductive NoOptimum
+  /-- No point satisfies the constraints. -/
+  | infeasible : NoOptimum
+  /-- The objective is unbounded above on the points that satisfy the constraints. -/
+  | unbounded : NoOptimum
 
 variable {matType : Nat → Nat → Type} [UsableInSimplexAlgorithm matType]
 
@@ -119,28 +119,22 @@ def removeArtificial (artVar : Nat) : SimplexAlgorithmM matType Unit := do
   set (t.drop [0] [t.free.idxOf artVar])
 
 /--
-Returns the optimal value of the linear program encoded by the matrix `A`, as built by
-`Mathlib.Tactic.LinearOptim.Problem.toMatrix`.
+Returns the optimal value of the linear program given by the matrix `A`, or why it has none.
 
-The variables are the columns of `A`, and each row `(a₀, …, aₘ)` is the equation
-`a₀ x₀ + ⋯ + aₘ xₘ = 0`. The column `x₀` has a single nonzero entry `-1` in row `0`, so row `0`
-defines the objective `x₀`, which is maximized. The last column `xₘ` is the constant `1`, and all
-other variables are nonnegative.
-
-The `maximize` tactic encodes the *dual* of its problem: the variables `x₁, …, xₘ₋₁` are the
-multipliers of the hypotheses. Hence an infeasible program means that no bound follows from the
-hypotheses (reported as `LinearOptimException.unbounded`), and an unbounded program means that the
-hypotheses are inconsistent (reported as `LinearOptimException.inconsistent`).
+The variables `x₀, …, xₘ₋₁` are the columns of `A`, and each row `(a₀, …, aₘ₋₁)` is the equation
+`a₀ x₀ + ⋯ + aₘ₋₁ xₘ₋₁ = 0`. The objective is `x₀`, which is maximized; column `0` must have a
+single nonzero entry, in row `0`. The last variable `xₘ₋₁` is the constant `1`, and the variables
+`x₁, …, xₘ₋₂` are nonnegative.
 -/
 def simplexOptimalBound {n m : Nat} (A : matType n m) :
-    Lean.Meta.MetaM (Except LinearOptimException Rat) := do
+    Lean.Meta.MetaM (Except NoOptimum Rat) := do
   let t ← Gauss.getTableau A
   -- The objective `x₀` is basic in row `0`, since column `0` is nonzero only in row `0`.
   unless t.basic[0]? == some 0 do
     throwError "simplexOptimalBound: the objective column is not basic"
   -- If the constant column is basic, its row reads `0 = 1`: the program is infeasible.
   if t.basic.contains (m - 1) then
-    return .error .unbounded
+    return .error .infeasible
   let lastIdx := t.free.size - 1
   -- The constraint row with the most negative value, if the basic solution is infeasible.
   let value (i : Nat) : Rat := t.mat[(i, lastIdx)]!
@@ -159,13 +153,13 @@ def simplexOptimalBound {n m : Nat} (A : matType n m) :
     unless res matches .ok true do
       throwError "simplexOptimalBound: phase 1 did not reach an optimum"
     if t1.mat[(0, t1.free.size - 1)]! < 0 then
-      return .error .unbounded
+      return .error .infeasible
     t := (← (removeArtificial artVar).run t1).2
   -- Phase 2.
   let (res, t2) ← (runOptimLoop 0 1).run t
   match res with
   | .ok true => return .ok t2.mat[(0, t2.free.size - 1)]!
-  | .ok false => return .error .inconsistent
+  | .ok false => return .error .unbounded
   | .error _ => throwError "simplexOptimalBound: phase 2 failed"
 
 end Mathlib.Tactic.Linarith.SimplexAlgorithm

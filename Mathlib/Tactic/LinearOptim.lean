@@ -150,6 +150,13 @@ end MatrixPreprocessing
 
 section BoundComputation
 
+/-- Why `maximize` or `minimize` produces no bound. -/
+inductive NoBound
+  /-- The hypotheses are inconsistent, so that every bound holds. -/
+  | inconsistent : NoBound
+  /-- No bound follows from the hypotheses. -/
+  | unbounded : NoBound
+
 /-- Whether `linarith` can prove `False` from the hypotheses in the context of `g`, together with
 the facts that its preprocessing derives from the expression `e`, such as `0 ≤ (n : K)` for the
 casts of natural numbers in `e`. These facts are also used to compute the bound on `e`. -/
@@ -173,7 +180,7 @@ and minimize with a single simplex implementation.
 Returns the optimal bound as a rational number, or an error if the problem is
 unbounded or infeasible. -/
 def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
-    MetaM (Except LinearOptimException Rat) := g.withContext do
+    MetaM (Except NoBound Rat) := g.withContext do
   let ⟨u, ty, e_exp⟩ ← inferTypeQ' e_exp
   -- The bound is the optimum of a linear program over `ℚ`, which is the optimum over `ty` only
   -- when `ty` is a linearly ordered field: over `ℤ`, for instance, it need not be an integer.
@@ -188,7 +195,7 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
   let target_exp := if isMaximize then e_exp else q(-$e_exp)
   -- No bound follows from the hypotheses: either the expression is unbounded or the hypotheses are
   -- inconsistent. Tell the two apart with `linarith`.
-  let unboundedOrInconsistent : MetaM (Except LinearOptimException Rat) := do
+  let unboundedOrInconsistent : MetaM (Except NoBound Rat) := do
     return .error (if ← hypothesesInconsistent g e_exp then .inconsistent else .unbounded)
   -- The dummy hypothesis is always `< z` (for a new dummy variable `z`) to ensure the scaling
   -- factor `k` is positive and that the Comp object represents `k*E`.
@@ -208,8 +215,10 @@ def computeOptimalBound (e_exp : Expr) (isMaximize : Bool) (g : MVarId) :
       -- The target was `-e`. We found `max(-e)`.
       -- So we return `-max(-e)` to get `min(e)`.
       return Except.ok (-max_of_target)
-  | .error .unbounded => unboundedOrInconsistent
-  | .error e => return Except.error e
+  -- The program is the dual of the problem of bounding `e`: when it is infeasible, no bound on `e`
+  -- follows from the hypotheses, and when it is unbounded, the hypotheses are inconsistent.
+  | .error .infeasible => unboundedOrInconsistent
+  | .error .unbounded => return .error .inconsistent
 
 
 end BoundComputation
